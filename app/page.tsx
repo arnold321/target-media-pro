@@ -1,65 +1,164 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
+import JobBoard from './components/JobBoard';
+import Auth from './components/Auth';
+import { Logo } from './components/ui';
+import { LogOut, LayoutDashboard, Briefcase } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
+  const [user, setUser] = useState<any>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+
+  useEffect(() => {
+    async function checkUserRole() {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        setLoading(false);
+        return;
+      }
+
+      setUser(session.user);
+
+      // Obtener el rol del usuario
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .single();
+
+      setUserRole(profile?.role || 'freelancer');
+      setLoading(false);
+    }
+
+    checkUserRole();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .single();
+        setUserRole(profile?.role || 'freelancer');
+      } else {
+        setUserRole(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setUserRole(null);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-brand-crema flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-rojo mx-auto"></div>
+          <p className="mt-4 text-brand-gris font-medium">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Auth onAuthSuccess={() => window.location.reload()} />;
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen bg-brand-crema flex flex-col">
+      {/* Header Oscuro */}
+      <header className="bg-brand-negro py-3.5 px-5 sticky top-0 z-50">
+        <div className="max-w-5xl mx-auto flex justify-between items-center gap-3 flex-wrap">
+          <Logo height={34} />
+          <div className="flex items-center gap-4">
+            {/* Botón Panel Admin (solo si es admin) */}
+            {userRole === 'admin' && (
+              <button
+                onClick={() => router.push('/admin')}
+                className="flex items-center gap-1.5 text-sm text-white hover:text-brand-rojo transition-colors font-medium"
+              >
+                <LayoutDashboard size={16} />
+                <span className="hidden sm:inline">Panel Admin</span>
+              </button>
+            )}
+            
+            {/* Botón Mis Trabajos (solo si es freelancer) */}
+            {userRole === 'freelancer' && (
+              <button
+                onClick={() => router.push('/freelancer')}
+                className="flex items-center gap-1.5 text-sm text-white hover:text-brand-rojo transition-colors font-medium"
+              >
+                <Briefcase size={16} />
+                <span className="hidden sm:inline">Mis Trabajos</span>
+              </button>
+            )}
+            // Agrega esto en el header o en una sección de navegación
+<button
+  onClick={() => router.push('/portfolio')}
+  className="text-sm text-gray-300 hover:text-white transition-colors"
+>
+  Portafolio
+</button>
+            <span className="text-xs text-gray-400 uppercase tracking-wider hidden sm:block">
+              {user.email}
+            </span>
+            
+            <button 
+              onClick={handleLogout} 
+              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              <LogOut size={14} />
+              <span className="hidden sm:inline">Cerrar sesión</span>
+            </button>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+      </header>
+
+      {/* Contenido Principal */}
+      <main className="flex-grow">
+        {userRole === 'admin' ? (
+          // Si es admin, mostrar mensaje de bienvenida y acceso rápido
+          <div className="max-w-5xl mx-auto px-4 py-12">
+            <div className="bg-white rounded-xl shadow-sm border border-brand-borde p-8 text-center mb-8">
+              <h2 className="text-2xl font-bold text-brand-negro mb-2">
+                ¡Bienvenido, Administrador!
+              </h2>
+              <p className="text-brand-gris mb-6">
+                Gestiona los trabajos, revisa propuestas y asigna proyectos desde el panel de administración.
+              </p>
+              <button
+                onClick={() => router.push('/admin')}
+                className="tm-btn-rojo inline-flex items-center gap-2"
+              >
+                <LayoutDashboard size={18} />
+                Ir al Panel de Administración
+              </button>
+            </div>
+            <JobBoard userId={user.id} />
+          </div>
+        ) : (
+          // Si es freelancer
+          <JobBoard userId={user.id} />
+        )}
       </main>
+
+      {/* Footer */}
+      <footer className="bg-brand-negro text-gray-400 text-center py-6 text-sm mt-12 border-t border-gray-800">
+        © Target Media {new Date().getFullYear()} · Síguenos en Instagram
+      </footer>
     </div>
   );
 }

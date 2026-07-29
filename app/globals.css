@@ -1,26 +1,73 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-brand-negro: #17181C;
+  --color-brand-rojo: #D9374A;
+  --color-brand-rojo-hover: #C22B3D;
+  --color-brand-vino: #6E1423;
+  --color-brand-crema: #F4F2ED;
+  --color-brand-blanco: #FFFFFF;
+  --color-brand-texto: #26272B;
+  --color-brand-gris: #7A7C82;
+  --color-brand-borde: #E4E1DA;
+
+  --font-sans: var(--font-poppins), system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  body {
+    font-family: var(--font-sans);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  .tm-btn-rojo {
+    @apply bg-brand-rojo text-white font-semibold px-4 py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1;
+  }
+  .tm-btn-rojo:hover:not(:disabled) {
+    @apply bg-brand-rojo-hover;
+  }
+  .tm-btn-rojo:disabled {
+    @apply bg-gray-300 cursor-not-allowed;
+  }
+
+  .tm-btn-outline {
+    @apply bg-white text-brand-negro border-[1.5px] border-brand-borde rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors cursor-pointer;
+  }
+  .tm-btn-outline:hover {
+    @apply border-brand-negro;
+  }
+
+  .tm-btn-verde {
+    @apply bg-[#1E7A3C] text-white rounded-lg px-3.5 py-2 text-sm font-semibold cursor-pointer;
+  }
+
+  .tm-btn-vino {
+    @apply bg-white text-brand-vino border-[1.5px] border-brand-vino rounded-lg px-3.5 py-2 text-sm font-semibold cursor-pointer;
+  }
+
+  .tm-link {
+    @apply bg-transparent border-none text-brand-vino font-semibold text-sm cursor-pointer py-1 hover:text-brand-rojo;
+  }
+
+  .tm-input {
+    @apply w-full border-[1.5px] border-brand-borde rounded-lg px-3 py-2.5 text-sm text-brand-texto bg-white box-border font-sans;
+  }
+  .tm-input:focus {
+    @apply outline-2 outline-brand-rojo outline-offset-1 border-transparent;
+  }
+
+  .tm-tab {
+    @apply bg-transparent border-none font-sans text-sm font-semibold text-brand-gris py-2 cursor-pointer border-b-[2.5px] border-transparent transition-colors;
+  }
+  .tm-tab.on {
+    @apply text-brand-negro border-b-brand-rojo;
+  }
+
+  .tm-rol {
+    @apply bg-white/10 border border-white/20 text-[#C9CACF] rounded-full px-3.5 py-1.5 text-xs font-semibold cursor-pointer font-sans transition-colors;
+  }
+  .tm-rol.on {
+    @apply bg-brand-rojo border-brand-rojo text-white;
+  }
 }
