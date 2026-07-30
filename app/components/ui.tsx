@@ -85,6 +85,7 @@ export function Badge({ estado }: { estado: string }) {
     en_progreso: { bg: "bg-blue-100", fg: "text-blue-700", label: "En progreso" },
     en_revision: { bg: "bg-yellow-100", fg: "text-yellow-800", label: "En revisión" },
     completado: { bg: "bg-green-100", fg: "text-green-700", label: "Completado" },
+    anulada: { bg: "bg-orange-100", fg: "text-orange-700", label: "Anulada" },
   };
 
   const e = estados[estado] || estados.pendiente;

@@ -105,7 +105,7 @@ export default function Home() {
                 <span className="hidden sm:inline">Mis Trabajos</span>
               </button>
             )}
-            // Agrega esto en el header o en una sección de navegación
+            {/* Agrega esto en el header o en una sección de navegación */}
 <button
   onClick={() => router.push('/portfolio')}
   className="text-sm text-gray-300 hover:text-white transition-colors"

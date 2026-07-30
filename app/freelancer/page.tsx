@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Briefcase, Upload, CheckCircle, Clock, ArrowLeft, DollarSign, Award, FileText, TrendingUp, XCircle, User, Mail, Phone, Save, Edit3, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Briefcase, Upload, CheckCircle, Clock, ArrowLeft, DollarSign, Award, FileText, TrendingUp, XCircle, User, Mail, Phone, Save, Edit3, AlertCircle, CheckCircle2, MessageCircle, Search, Filter } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Logo, Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
+import ChatModal from '@/app/components/ChatModal';
 
 interface AssignedJob {
   id: string;
@@ -16,6 +17,7 @@ interface AssignedJob {
   description: string;
   deliverable_url: string | null;
   created_at: string;
+  unread_messages?: number;
 }
 
 interface Proposal {
@@ -65,7 +67,15 @@ export default function FreelancerDashboard() {
     whatsapp_number: '',
   });
   const [savingProfile, setSavingProfile] = useState(false);
-  const [profileMessage, setProfileMessage] = useState({ type: '', text: '' });
+  
+  // Estados para el Chat
+  const [chatJob, setChatJob] = useState<any>(null);
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [currentUserName, setCurrentUserName] = useState('');
+  
+  // Estados para búsqueda y filtros
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('todos');
   
   const router = useRouter();
   const toast = useToast();
@@ -76,9 +86,23 @@ export default function FreelancerDashboard() {
     fetchProfile();
   }, []);
 
+  useEffect(() => {
+    // Escuchar nuevos mensajes para actualizar el badge en tiempo real
+    const handleNewMessage = () => {
+      loadJobsWithUnread(currentUserId);
+    };
+    window.addEventListener('new-chat-message', handleNewMessage);
+    
+    return () => {
+      window.removeEventListener('new-chat-message', handleNewMessage);
+    };
+  }, [currentUserId]);
+
   async function fetchProfile() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+
+    setCurrentUserId(user.id);
 
     const { data, error } = await supabase
       .from('profiles')
@@ -89,11 +113,54 @@ export default function FreelancerDashboard() {
     if (error) console.error('Error al cargar perfil:', error);
     else {
       setProfile(data);
+      setCurrentUserName(data.full_name || 'Freelancer');
       setProfileForm({
         full_name: data.full_name || '',
         whatsapp_number: data.whatsapp_number || '',
       });
     }
+  }
+
+  async function loadJobsWithUnread(userIdToUse?: string) {
+    const uid = userIdToUse || currentUserId;
+    if (!uid) return;
+
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('*')
+      .eq('assigned_freelancer_id', uid)
+      .in('status', ['en_progreso', 'en_revision', 'completado'])
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error al cargar trabajos:', error);
+      return;
+    }
+
+    // Cargar mensajes no leídos para cada trabajo
+    const jobsWithUnread = await Promise.all(
+      (data || []).map(async (job) => {
+        const { count } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('job_id', job.id)
+          .eq('read', false)
+          .neq('sender_id', uid);
+        
+        return { ...job, unread_messages: count || 0 };
+      })
+    );
+
+    setJobs(jobsWithUnread);
+    
+    const active = (jobsWithUnread || []).filter(j => j.status === 'en_progreso').length;
+    const inReview = (jobsWithUnread || []).filter(j => j.status === 'en_revision').length;
+    const completed = (jobsWithUnread || []).filter(j => j.status === 'completado').length;
+    const totalEarned = (jobsWithUnread || [])
+      .filter(j => j.status === 'completado')
+      .reduce((sum, j) => sum + Number(j.budget || 0), 0);
+
+    setStats(prev => ({ ...prev, active, inReview, completed, totalEarned }));
   }
 
   async function fetchAssignedJobs() {
@@ -103,91 +170,71 @@ export default function FreelancerDashboard() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from('jobs')
-      .select('*')
-      .eq('assigned_freelancer_id', user.id)
-      .in('status', ['en_progreso', 'en_revision', 'completado'])
-      .order('created_at', { ascending: false });
-
-    if (error) console.error('Error al cargar trabajos:', error);
-    else {
-      setJobs(data || []);
-      
-      const active = (data || []).filter(j => j.status === 'en_progreso').length;
-      const inReview = (data || []).filter(j => j.status === 'en_revision').length;
-      const completed = (data || []).filter(j => j.status === 'completado').length;
-      const totalEarned = (data || [])
-        .filter(j => j.status === 'completado')
-        .reduce((sum, j) => sum + Number(j.budget || 0), 0);
-
-      setStats(prev => ({ ...prev, active, inReview, completed, totalEarned }));
-    }
-    
+    setCurrentUserId(user.id);
+    await loadJobsWithUnread(user.id);
     setLoading(false);
   }
 
-async function fetchProposals() {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  async function fetchProposals() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
 
-  try {
-    const { data, error } = await supabase
-      .from('proposals')
-      .select(`
-        id,
-        job_id,
-        freelancer_id,
-        cover_letter,
-        proposed_budget,
-        delivery_days,
-        portfolio_link,
-        status,
-        deliverable_url,
-        created_at,
-        jobs:job_id (
+    try {
+      const { data, error } = await supabase
+        .from('proposals')
+        .select(`
           id,
-          title,
-          category,
-          budget,
-          status
-        )
-      `)
-      .eq('freelancer_id', user.id)
-      .order('created_at', { ascending: false });
+          job_id,
+          freelancer_id,
+          cover_letter,
+          proposed_budget,
+          delivery_days,
+          portfolio_link,
+          status,
+          deliverable_url,
+          created_at,
+          jobs:job_id (
+            id,
+            title,
+            category,
+            budget,
+            status
+          )
+        `)
+        .eq('freelancer_id', user.id)
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error al cargar propuestas:', error);
-      return;
+      if (error) {
+        console.error('Error al cargar propuestas:', error);
+        return;
+      }
+
+      const transformedProposals: Proposal[] = (data || []).map((proposal: any) => ({
+        id: proposal.id,
+        job_id: proposal.job_id,
+        cover_letter: proposal.cover_letter,
+        proposed_budget: proposal.proposed_budget,
+        status: proposal.status,
+        created_at: proposal.created_at,
+        jobs: {
+          title: proposal.jobs?.title || '',
+          category: proposal.jobs?.category || '',
+          budget: proposal.jobs?.budget || 0,
+          status: proposal.jobs?.status || '',
+        },
+      }));
+
+      setProposals(transformedProposals);
+      
+      const pending = transformedProposals.filter(p => p.status === 'pendiente').length;
+      const approved = transformedProposals.filter(p => p.status === 'aprobada').length;
+      const rejected = transformedProposals.filter(p => p.status === 'rechazada').length;
+
+      setStats(prev => ({ ...prev, pendingProposals: pending, approvedProposals: approved, rejectedProposals: rejected }));
+    } catch (error) {
+      console.error('Error en fetchProposals:', error);
     }
-
-    // Transformar los datos al formato correcto
-    const transformedProposals: Proposal[] = (data || []).map((proposal: any) => ({
-      id: proposal.id,
-      job_id: proposal.job_id,
-      cover_letter: proposal.cover_letter,
-      proposed_budget: proposal.proposed_budget,
-      status: proposal.status,
-      created_at: proposal.created_at,
-      jobs: {
-        title: proposal.jobs?.title || '',
-        category: proposal.jobs?.category || '',
-        budget: proposal.jobs?.budget || 0,
-        status: proposal.jobs?.status || '',
-      },
-    }));
-
-    setProposals(transformedProposals);
-    
-    const pending = transformedProposals.filter(p => p.status === 'pendiente').length;
-    const approved = transformedProposals.filter(p => p.status === 'aprobada').length;
-    const rejected = transformedProposals.filter(p => p.status === 'rechazada').length;
-
-    setStats(prev => ({ ...prev, pendingProposals: pending, approvedProposals: approved, rejectedProposals: rejected }));
-  } catch (error) {
-    console.error('Error en fetchProposals:', error);
   }
-}
 
   async function handleUploadDeliverable(jobId: string, file: File) {
     const { data: { user } } = await supabase.auth.getUser();
@@ -245,7 +292,7 @@ async function fetchProposals() {
         });
       }
 
-      fetchAssignedJobs();
+      await fetchAssignedJobs();
     } catch (error) {
       console.error('Error al subir:', error);
       toast.error('Error al subir el entregable');
@@ -257,7 +304,6 @@ async function fetchProposals() {
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
     setSavingProfile(true);
-    setProfileMessage({ type: '', text: '' });
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -283,6 +329,21 @@ async function fetchProposals() {
       setSavingProfile(false);
     }
   }
+
+  // Filtrar trabajos según búsqueda y estado
+  const filteredJobs = jobs.filter(job => {
+    const matchesSearch = searchQuery === '' || 
+      job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      job.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      job.description.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'todos' || job.status === statusFilter;
+    
+    return matchesSearch && matchesStatus;
+  });
+
+  // Calcular total de mensajes no leídos
+  const totalUnreadMessages = jobs.reduce((sum, job) => sum + (job.unread_messages || 0), 0);
 
   if (loading) {
     return (
@@ -411,7 +472,44 @@ async function fetchProposals() {
                   </div>
                 </div>
 
-                {jobs.length === 0 ? (
+                {/* BARRA DE BÚSQUEDA Y FILTROS */}
+                <div className="mb-6 flex flex-col sm:flex-row gap-3">
+                  <div className="flex-1 relative">
+                    <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por título, categoría o descripción..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="tm-input pl-10"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Filter size={18} className="text-brand-gris" />
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="tm-input py-2"
+                    >
+                      <option value="todos">Todos los estados</option>
+                      <option value="en_progreso">En Progreso</option>
+                      <option value="en_revision">En Revisión</option>
+                      <option value="completado">Completado</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Contador de resultados */}
+                <div className="mb-4 text-sm text-brand-gris">
+                  Mostrando {filteredJobs.length} de {jobs.length} trabajos
+                  {totalUnreadMessages > 0 && (
+                    <span className="ml-3 text-brand-rojo font-semibold">
+                      🔔 {totalUnreadMessages} mensaje{totalUnreadMessages !== 1 ? 's' : ''} sin leer
+                    </span>
+                  )}
+                </div>
+
+                {filteredJobs.length === 0 ? (
                   <div className="text-center py-12">
                     <Briefcase className="mx-auto h-16 w-16 text-brand-gris opacity-30" />
                     <h3 className="mt-4 text-xl font-bold text-brand-negro">No tienes trabajos asignados aún</h3>
@@ -427,7 +525,7 @@ async function fetchProposals() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {jobs.map((job) => (
+                    {filteredJobs.map((job) => (
                       <div key={job.id} className="bg-brand-crema/30 rounded-xl border border-brand-borde overflow-hidden hover:shadow-md transition-shadow">
                         <div className="p-6">
                           <div className="flex justify-between items-start mb-4 flex-wrap gap-3">
@@ -459,36 +557,52 @@ async function fetchProposals() {
                               })}
                             </div>
 
-                            {job.status === 'en_progreso' && (
-                              <label className="tm-btn-rojo flex items-center gap-2 cursor-pointer">
-                                <Upload size={16} />
-                                {uploadingJobId === job.id ? 'Subiendo...' : 'Subir entregable'}
-                                <input
-                                  type="file"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    if (e.target.files && e.target.files[0]) {
-                                      handleUploadDeliverable(job.id, e.target.files[0]);
-                                    }
-                                  }}
-                                  accept=".pdf,.zip,.rar,.doc,.docx,.jpg,.png"
-                                />
-                              </label>
-                            )}
+                            <div className="flex items-center gap-3 flex-wrap">
+                              {job.status === 'en_progreso' && (
+                                <label className="tm-btn-rojo flex items-center gap-2 cursor-pointer">
+                                  <Upload size={16} />
+                                  {uploadingJobId === job.id ? 'Subiendo...' : 'Subir entregable'}
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      if (e.target.files && e.target.files[0]) {
+                                        handleUploadDeliverable(job.id, e.target.files[0]);
+                                      }
+                                    }}
+                                    accept=".pdf,.zip,.rar,.doc,.docx,.jpg,.png"
+                                  />
+                                </label>
+                              )}
 
-                            {job.status === 'en_revision' && (
-                              <div className="flex items-center gap-2 text-yellow-700 bg-yellow-50 px-4 py-2 rounded-lg">
-                                <Clock size={16} />
-                                <span className="text-sm font-semibold">Esperando revisión del cliente</span>
-                              </div>
-                            )}
+                              {job.status === 'en_revision' && (
+                                <div className="flex items-center gap-2 text-yellow-700 bg-yellow-50 px-4 py-2 rounded-lg">
+                                  <Clock size={16} />
+                                  <span className="text-sm font-semibold">Esperando revisión</span>
+                                </div>
+                              )}
 
-                            {job.status === 'completado' && (
-                              <div className="flex items-center gap-2 text-green-700 bg-green-50 px-4 py-2 rounded-lg">
-                                <CheckCircle size={16} />
-                                <span className="text-sm font-semibold">Trabajo completado y pagado</span>
-                              </div>
-                            )}
+                              {job.status === 'completado' && (
+                                <div className="flex items-center gap-2 text-green-700 bg-green-50 px-4 py-2 rounded-lg">
+                                  <CheckCircle size={16} />
+                                  <span className="text-sm font-semibold">Completado</span>
+                                </div>
+                              )}
+
+                              {/* BOTÓN DE CHAT CON BADGE DE MENSAJES NO LEÍDOS */}
+                              <button
+                                onClick={() => setChatJob(job)}
+                                className="tm-btn-outline flex items-center gap-1 text-xs relative"
+                              >
+                                <MessageCircle size={14} />
+                                Chat
+                                {job.unread_messages && job.unread_messages > 0 && (
+                                  <span className="absolute -top-2 -right-2 bg-brand-rojo text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                                    {job.unread_messages}
+                                  </span>
+                                )}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -740,7 +854,6 @@ async function fetchProposals() {
                           type="button"
                           onClick={() => {
                             setEditingProfile(false);
-                            setProfileMessage({ type: '', text: '' });
                             setProfileForm({
                               full_name: profile.full_name || '',
                               whatsapp_number: profile.whatsapp_number || '',
@@ -781,6 +894,19 @@ async function fetchProposals() {
       <footer className="bg-brand-negro text-gray-400 text-center py-6 text-sm mt-12 border-t border-gray-800">
         © Target Media {new Date().getFullYear()} · Panel Freelancer
       </footer>
+
+      {chatJob && (
+        <ChatModal
+          job={chatJob}
+          currentUserId={currentUserId}
+          currentUserName={currentUserName}
+          currentUserRole="freelancer"
+          onClose={() => {
+            setChatJob(null);
+            loadJobsWithUnread(currentUserId);
+          }}
+        />
+      )}
     </div>
   );
 }

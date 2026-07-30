@@ -14,6 +14,8 @@ interface PortfolioItem {
   year: number;
   budget?: number;
   created_at: string;
+  rating: number | null;       // <-- AGREGAR
+  review_text: string | null;  // <-- AGREGAR
 }
 
 export default function PortfolioPage() {
@@ -54,15 +56,17 @@ export default function PortfolioPage() {
         return;
       }
 
-      const transformedData: PortfolioItem[] = data.map(job => ({
-        id: job.id,
-        title: job.title,
-        category: job.category,
-        description: job.description || '',
-        year: new Date(job.created_at).getFullYear(),
-        budget: job.budget,
-        created_at: job.created_at,
-      }));
+ const transformedData: PortfolioItem[] = data.map(job => ({
+  id: job.id,
+  title: job.title,
+  category: job.category,
+  description: job.description || '',
+  year: new Date(job.created_at).getFullYear(),
+  budget: job.budget,
+  created_at: job.created_at,
+  rating: job.rating || null,       // <-- AGREGAR
+  review_text: job.review_text || null, // <-- AGREGAR
+}));
 
       console.log('📊 Total transformados:', transformedData.length);
 
@@ -174,30 +178,53 @@ export default function PortfolioPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {featuredItems.map((item) => (
-                <article 
-                  key={item.id} 
-                  className="bg-white rounded-xl border border-brand-borde p-6 hover:shadow-lg transition-shadow"
-                >
-                  <div className="flex justify-between items-start mb-3">
-                    <span className="bg-brand-crema text-brand-vino font-semibold text-xs px-3 py-1 rounded-full">
-                      {item.category}
-                    </span>
-                    <span className="text-sm text-brand-gris">{item.year}</span>
-                  </div>
+<article 
+  key={item.id} 
+  className="bg-white rounded-xl border border-brand-borde p-6 hover:shadow-lg transition-shadow flex flex-col h-full"
+>
+  <div className="flex justify-between items-start mb-3">
+    <span className="bg-brand-crema text-brand-vino font-semibold text-xs px-3 py-1 rounded-full">
+      {item.category}
+    </span>
+    <span className="text-sm text-brand-gris">{item.year}</span>
+  </div>
 
-                  <h3 className="text-lg font-bold text-brand-negro mb-3 leading-tight">
-                    {item.title}
-                  </h3>
+  <h3 className="text-lg font-bold text-brand-negro mb-3 leading-tight">
+    {item.title}
+  </h3>
 
-                  <div className="flex items-center gap-1 text-xs text-brand-gris mb-3">
-                    <Lock size={12} />
-                    <span>Sector · identidad reservada</span>
-                  </div>
+  <div className="flex items-center gap-1 text-xs text-brand-gris mb-3">
+    <Lock size={12} />
+    <span>Sector · identidad reservada</span>
+  </div>
 
-                  <p className="text-sm text-brand-texto leading-relaxed">
-                    {item.description}
-                  </p>
-                </article>
+  <p className="text-sm text-brand-texto leading-relaxed mb-4 flex-grow">
+    {item.description}
+  </p>
+
+  {/* SECCIÓN DE RESEÑA (Solo se muestra si tiene rating) */}
+  {item.rating && (
+    <div className="mt-4 pt-4 border-t border-brand-borde">
+      <div className="flex items-center gap-1 mb-2">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            size={14}
+            className={`${
+              star <= item.rating! ? 'fill-yellow-400 text-yellow-400' : 'fill-gray-200 text-gray-200'
+            }`}
+          />
+        ))}
+        <span className="text-xs font-bold text-brand-negro ml-2">{item.rating}/5</span>
+      </div>
+      {item.review_text && (
+        <p className="text-xs text-brand-gris italic leading-relaxed">
+          "{item.review_text}"
+        </p>
+      )}
+    </div>
+  )}
+</article>
               ))}
             </div>
           </div>
