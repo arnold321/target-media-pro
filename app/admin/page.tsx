@@ -391,7 +391,7 @@ export default function AdminPanel() {
                     <h3 className="text-lg font-bold text-brand-negro mb-4 flex items-center gap-2"><PieChartIcon size={20} className="text-brand-vino" /> Distribución de Ingresos</h3>
                     <div className="h-64 w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <PieChart><Pie data={chartBudgetByCategory} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">{chartBudgetByCategory.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip formatter={(value: number) => `$${value.toLocaleString()}`} /></PieChart>
+                        <PieChart><Pie data={chartBudgetByCategory} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">{chartBudgetByCategory.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip formatter={(value) => `$${Number(value || 0).toLocaleString()}`} /></PieChart>
                       </ResponsiveContainer>
                     </div>
                     <div className="flex flex-wrap justify-center gap-3 mt-4">
