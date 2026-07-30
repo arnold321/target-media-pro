@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/app/components/ui';
-import { Lock, Star } from 'lucide-react';
+import { Lock, Star, ArrowLeft } from 'lucide-react';
 
 interface PortfolioItem {
   id: string;
