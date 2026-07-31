@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Heart, DollarSign, Clock, Briefcase, Share2 } from 'lucide-react';
+import { Heart, DollarSign, Clock, Briefcase, Share2, X, CheckCircle } from 'lucide-react';
 import { Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
 
@@ -14,6 +14,7 @@ interface Job {
   budget: number;
   status: string;
   created_at: string;
+  entregables?: string;
 }
 
 interface JobBoardProps {
@@ -25,6 +26,13 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [favoriteJobs, setFavoriteJobs] = useState<string[]>([]);
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [applyForm, setApplyForm] = useState({
+    cover_letter: '',
+    proposed_budget: '',
+  });
+  const [applying, setApplying] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -98,6 +106,36 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
     }
   }
 
+  async function handleApply(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedJob) return;
+
+    setApplying(true);
+    try {
+      const { error } = await supabase
+        .from('proposals')
+        .insert({
+          job_id: selectedJob.id,
+          freelancer_id: userId,
+          cover_letter: applyForm.cover_letter.trim(),
+          proposed_budget: parseFloat(applyForm.proposed_budget),
+          status: 'pendiente',
+        });
+
+      if (error) throw error;
+
+      toast.success('¡Propuesta enviada exitosamente! El admin la revisará pronto.');
+      setShowApplyModal(false);
+      setSelectedJob(null);
+      setApplyForm({ cover_letter: '', proposed_budget: '' });
+    } catch (error) {
+      console.error('Error al enviar propuesta:', error);
+      toast.error('Error al enviar la propuesta');
+    } finally {
+      setApplying(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -119,15 +157,12 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
           <p className="text-brand-gris">No hay trabajos disponibles en este momento.</p>
         </div>
       ) : (
-        /* 🆕 GRID DE 3 COLUMNAS (Responsivo: 1 en móvil, 2 en tablet, 3 en PC) */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {jobs.map((job) => (
             <div 
               key={job.id} 
               className="bg-white rounded-xl border border-brand-borde p-5 hover:shadow-lg transition-all hover:-translate-y-1 flex flex-col h-full relative group"
             >
-              
-              {/* BOTÓN DE FAVORITOS */}
               {userRole === 'freelancer' && (
                 <button
                   onClick={() => toggleFavorite(job.id)}
@@ -142,7 +177,6 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
                 </button>
               )}
 
-              {/* Badges */}
               <div className="flex items-center gap-2 mb-3 flex-wrap">
                 <Badge estado={job.status} />
                 <span className="text-xs font-semibold text-brand-vino bg-brand-crema px-2 py-1 rounded-full">
@@ -150,17 +184,14 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
                 </span>
               </div>
               
-              {/* Título */}
               <h3 className="text-lg font-bold text-brand-negro mb-2 line-clamp-2 leading-tight min-h-[3rem]">
                 {job.title}
               </h3>
               
-              {/* Descripción */}
               <p className="text-brand-texto text-xs mb-4 line-clamp-3 flex-grow">
                 {job.description}
               </p>
               
-              {/* Info de presupuesto y fecha */}
               <div className="flex flex-col gap-2 text-xs text-brand-gris mb-4 pt-3 border-t border-brand-borde">
                 <span className="flex items-center gap-1.5 font-semibold text-green-600">
                   <DollarSign size={14} />
@@ -176,7 +207,6 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
                 </span>
               </div>
 
-              {/* Botones de acción */}
               <div className="flex gap-2 mt-auto">
                 <button 
                   onClick={() => handleShare(job)}
@@ -187,12 +217,181 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
                   Compartir
                 </button>
                 
-                <button className="flex-1 tm-btn-rojo text-xs py-2">
+                <button 
+                  onClick={() => setSelectedJob(job)}
+                  className="flex-1 tm-btn-rojo text-xs py-2"
+                >
                   Ver Detalles
                 </button>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/*  MODAL DE DETALLES DEL TRABAJO */}
+      {selectedJob && !showApplyModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full my-8">
+            <div className="bg-brand-negro rounded-t-2xl p-6 flex justify-between items-start">
+              <div className="flex-1 pr-4">
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                  <Badge estado={selectedJob.status} />
+                  <span className="text-xs font-semibold text-brand-vino bg-brand-crema px-2 py-1 rounded-full">
+                    {selectedJob.category}
+                  </span>
+                </div>
+                <h2 className="text-2xl font-extrabold text-white">{selectedJob.title}</h2>
+              </div>
+              <button 
+                onClick={() => setSelectedJob(null)}
+                className="text-gray-400 hover:text-white transition-colors p-1"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div>
+                <h3 className="text-sm font-semibold text-brand-negro mb-2">Descripción del Proyecto</h3>
+                <p className="text-brand-texto text-sm leading-relaxed">{selectedJob.description}</p>
+              </div>
+
+              {selectedJob.entregables && (
+                <div>
+                  <h3 className="text-sm font-semibold text-brand-negro mb-2">Entregables Esperados</h3>
+                  <p className="text-brand-texto text-sm leading-relaxed">{selectedJob.entregables}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-brand-borde">
+                <div>
+                  <p className="text-xs text-brand-gris uppercase font-semibold mb-1">Presupuesto</p>
+                  <p className="text-2xl font-extrabold text-green-600">${Number(selectedJob.budget).toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-brand-gris uppercase font-semibold mb-1">Publicado</p>
+                  <p className="text-lg font-bold text-brand-negro">
+                    {new Date(selectedJob.created_at).toLocaleDateString('es-ES', { 
+                      day: '2-digit', 
+                      month: 'long',
+                      year: 'numeric'
+                    })}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-brand-borde">
+                <button
+                  onClick={() => setSelectedJob(null)}
+                  className="flex-1 tm-btn-outline"
+                >
+                  Cerrar
+                </button>
+                {userRole === 'freelancer' && (
+                  <button
+                    onClick={() => setShowApplyModal(true)}
+                    className="flex-1 tm-btn-rojo flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle size={18} />
+                    Postularme a este Trabajo
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🆕 MODAL DE POSTULACIÓN */}
+      {selectedJob && showApplyModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full my-8">
+            <div className="bg-brand-negro rounded-t-2xl p-6 flex justify-between items-start">
+              <div>
+                <h2 className="text-2xl font-extrabold text-white">Postularme al Trabajo</h2>
+                <p className="text-gray-400 text-sm mt-1">{selectedJob.title}</p>
+              </div>
+              <button 
+                onClick={() => { setShowApplyModal(false); setSelectedJob(null); }}
+                className="text-gray-400 hover:text-white transition-colors p-1"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handleApply} className="p-6 space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-brand-negro mb-2">
+                  Carta de Presentación *
+                </label>
+                <textarea
+                  rows={6}
+                  value={applyForm.cover_letter}
+                  onChange={(e) => setApplyForm({ ...applyForm, cover_letter: e.target.value })}
+                  className="tm-input resize-none"
+                  placeholder="Cuéntale al cliente por qué eres el mejor candidato para este proyecto..."
+                  required
+                  minLength={50}
+                />
+                <p className="text-xs text-brand-gris mt-1">
+                  Mínimo 50 caracteres · {applyForm.cover_letter.length} caracteres
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-brand-negro mb-2">
+                  Tu Presupuesto Propuesto (USD) *
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <DollarSign size={16} className="text-brand-gris" />
+                  </div>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    value={applyForm.proposed_budget}
+                    onChange={(e) => setApplyForm({ ...applyForm, proposed_budget: e.target.value })}
+                    className="tm-input pl-10"
+                    placeholder="Ej: 500"
+                    required
+                  />
+                </div>
+                <p className="text-xs text-brand-gris mt-1">
+                  Presupuesto del cliente: ${Number(selectedJob.budget).toLocaleString()}
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-brand-borde">
+                <button
+                  type="button"
+                  onClick={() => setShowApplyModal(false)}
+                  className="flex-1 tm-btn-outline"
+                  disabled={applying}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={applying}
+                  className="flex-1 tm-btn-rojo flex items-center justify-center gap-2"
+                >
+                  {applying ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Enviando...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle size={18} />
+                      Enviar Propuesta
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
