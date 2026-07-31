@@ -125,7 +125,7 @@ export default function NotificationBell({ userId, onNotificationClick }: Notifi
           setUnreadCount(prev => updated.read ? prev - 1 : prev);
         }
       )
-      .subscribe((status) => {
+        .subscribe((status: string) => {
         if (status === 'SUBSCRIBED') {
           console.log('Notificaciones realtime suscritas correctamente');
         }
