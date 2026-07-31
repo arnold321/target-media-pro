@@ -25,7 +25,6 @@ export default function Home() {
 
       setUser(session.user);
 
-      // Obtener el rol del usuario
       const { data: profile } = await supabase
         .from('profiles')
         .select('role')
@@ -79,12 +78,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-brand-crema flex flex-col">
-      {/* Header Oscuro */}
       <header className="bg-brand-negro py-3.5 px-5 sticky top-0 z-50">
         <div className="max-w-5xl mx-auto flex justify-between items-center gap-3 flex-wrap">
           <Logo height={34} />
           <div className="flex items-center gap-4">
-            {/* Botón Panel Admin (solo si es admin) */}
             {userRole === 'admin' && (
               <button
                 onClick={() => router.push('/admin')}
@@ -95,7 +92,6 @@ export default function Home() {
               </button>
             )}
             
-            {/* Botón Mis Trabajos (solo si es freelancer) */}
             {userRole === 'freelancer' && (
               <button
                 onClick={() => router.push('/freelancer')}
@@ -105,13 +101,14 @@ export default function Home() {
                 <span className="hidden sm:inline">Mis Trabajos</span>
               </button>
             )}
-            {/* Agrega esto en el header o en una sección de navegación */}
-<button
-  onClick={() => router.push('/portfolio')}
-  className="text-sm text-gray-300 hover:text-white transition-colors"
->
-  Portafolio
-</button>
+            
+            <button
+              onClick={() => router.push('/portfolio')}
+              className="text-sm text-gray-300 hover:text-white transition-colors"
+            >
+              Portafolio
+            </button>
+            
             <span className="text-xs text-gray-400 uppercase tracking-wider hidden sm:block">
               {user.email}
             </span>
@@ -127,10 +124,8 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Contenido Principal */}
       <main className="flex-grow">
         {userRole === 'admin' ? (
-          // Si es admin, mostrar mensaje de bienvenida y acceso rápido
           <div className="max-w-5xl mx-auto px-4 py-12">
             <div className="bg-white rounded-xl shadow-sm border border-brand-borde p-8 text-center mb-8">
               <h2 className="text-2xl font-bold text-brand-negro mb-2">
@@ -147,15 +142,13 @@ export default function Home() {
                 Ir al Panel de Administración
               </button>
             </div>
-            <JobBoard userId={user.id} />
+            <JobBoard userId={user.id} userRole={userRole} />
           </div>
         ) : (
-          // Si es freelancer
-          <JobBoard userId={user.id} />
+          <JobBoard userId={user.id} userRole={userRole} />
         )}
       </main>
 
-      {/* Footer */}
       <footer className="bg-brand-negro text-gray-400 text-center py-6 text-sm mt-12 border-t border-gray-800">
         © Target Media {new Date().getFullYear()} · Síguenos en Instagram
       </footer>

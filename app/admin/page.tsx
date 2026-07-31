@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Briefcase, Users, DollarSign, Clock, Plus, ArrowLeft, Check, X, Eye, Trash2, Star, TrendingUp, PieChart as PieChartIcon, BarChart3, MessageCircle, AlertTriangle, RotateCcw, Search, Filter, Shield, ShieldAlert } from 'lucide-react';
+import { Briefcase, Users, DollarSign, Clock, Plus, ArrowLeft, Check, X, Eye, Trash2, Star, TrendingUp, PieChart as PieChartIcon, BarChart3, MessageCircle, AlertTriangle, RotateCcw, Search, Filter, Shield, ShieldAlert, ChevronLeft, ChevronRight, FolderOpen } from 'lucide-react';
 import { Logo, Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
 import NewJobForm from '@/app/admin/NewJobForm';
 import ReviewModal from '@/app/components/ReviewModal';
 import ChatModal from '@/app/components/ChatModal';
+import NotificationBell from '@/app/components/NotificationBell';
+import { createNotification } from '@/lib/notifications';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 interface Job {
@@ -56,6 +58,7 @@ interface UserProfile {
 }
 
 const COLORS = ['#D9374A', '#6E1423', '#F4E4D6', '#1F2937', '#9CA3AF'];
+const ITEMS_PER_PAGE = 20;
 
 export default function AdminPanel() {
   const [stats, setStats] = useState({
@@ -85,6 +88,10 @@ export default function AdminPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalFilteredJobs, setTotalFilteredJobs] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+
   useEffect(() => {
     checkAdminAndLoadData();
     
@@ -97,6 +104,16 @@ export default function AdminPanel() {
       window.removeEventListener('new-chat-message', handleNewMessage);
     };
   }, [currentUserId]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter]);
+
+  useEffect(() => {
+    if (activeTab === 'jobs' && !selectedJob && currentUserId) {
+      loadData(currentUserId);
+    }
+  }, [currentPage, activeTab, selectedJob]);
 
   async function checkAdminAndLoadData() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -123,7 +140,7 @@ export default function AdminPanel() {
     setCurrentUserRole('admin');
 
     await loadData(user.id);
-    await fetchUsers(); // Cargar usuarios al iniciar
+    await fetchUsers();
     setLoading(false);
   }
 
@@ -142,8 +159,26 @@ export default function AdminPanel() {
       pendingProposals: pendingProposals || 0,
     });
 
-    const { data: jobsData } = await supabase.from('jobs').select('*').order('created_at', { ascending: false });
+    let query = supabase.from('jobs').select('*', { count: 'exact' });
+
+    if (statusFilter !== 'todos') {
+      query = query.eq('status', statusFilter);
+    }
+
+    if (searchQuery) {
+      query = query.or(`title.ilike.%${searchQuery}%,category.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%`);
+    }
+
+    const from = (currentPage - 1) * ITEMS_PER_PAGE;
+    const to = from + ITEMS_PER_PAGE - 1;
+
+    const { data: jobsData, count } = await query
+      .order('created_at', { ascending: false })
+      .range(from, to);
     
+    setTotalFilteredJobs(count || 0);
+    setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
+
     const jobsWithUnread = await Promise.all(
       (jobsData || []).map(async (job) => {
         const { count } = await supabase
@@ -166,7 +201,6 @@ export default function AdminPanel() {
     setProposals(proposalsData || []);
   }
 
-  // 🆕 FUNCIÓN PARA CARGAR USUARIOS
   async function fetchUsers() {
     setLoadingUsers(true);
     const { data, error } = await supabase
@@ -180,7 +214,6 @@ export default function AdminPanel() {
     setLoadingUsers(false);
   }
 
-  // 🆕 FUNCIÓN PARA CAMBIAR ROL
   async function handleUpdateRole(userId: string, currentRole: string) {
     const newRole = currentRole === 'admin' ? 'freelancer' : 'admin';
     
@@ -209,9 +242,20 @@ export default function AdminPanel() {
   async function handleApproveProposal(proposalId: string, jobId: string, freelancerId: string) {
     if (!confirm('¿Aprobar esta propuesta? El trabajo pasará a estado "En progreso".')) return;
     try {
+      const job = jobs.find(j => j.id === jobId);
       await supabase.from('proposals').update({ status: 'aprobada' }).eq('id', proposalId);
       await supabase.from('jobs').update({ status: 'en_progreso', assigned_freelancer_id: freelancerId }).eq('id', jobId);
       toast.success('Propuesta aprobada exitosamente');
+      
+      await createNotification(
+        freelancerId,
+        'proposal_approved',
+        '¡Propuesta aprobada!',
+        `Tu propuesta para "${job?.title || 'el trabajo'}" ha sido aprobada.`,
+        jobId,
+        'job'
+      );
+      
       await loadData(currentUserId);
     } catch (error) {
       toast.error('Error al aprobar la propuesta');
@@ -221,8 +265,21 @@ export default function AdminPanel() {
   async function handleRejectProposal(proposalId: string) {
     if (!confirm('¿Rechazar esta propuesta?')) return;
     try {
+      const proposal = proposals.find(p => p.id === proposalId);
       await supabase.from('proposals').update({ status: 'rechazada' }).eq('id', proposalId);
       toast.success('Propuesta rechazada');
+      
+      if (proposal) {
+        await createNotification(
+          proposal.freelancer_id,
+          'proposal_rejected',
+          'Propuesta rechazada',
+          `Tu propuesta para "${proposal.jobs.title}" no fue seleccionada.`,
+          proposal.job_id,
+          'job'
+        );
+      }
+      
       await loadData(currentUserId);
     } catch (error) {
       toast.error('Error al rechazar la propuesta');
@@ -268,15 +325,6 @@ export default function AdminPanel() {
 
   const jobProposals = selectedJob ? proposals.filter(p => p.job_id === selectedJob) : proposals;
 
-  const filteredJobs = jobs.filter(job => {
-    const matchesSearch = searchQuery === '' || job.title.toLowerCase().includes(searchQuery.toLowerCase()) || job.category.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'todos' || job.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
-
-  const totalUnreadMessages = jobs.reduce((sum, job) => sum + (job.unread_messages || 0), 0);
-
-  // Estadísticas
   const completedJobs = jobs.filter(j => j.status === 'completado');
   const totalRevenue = completedJobs.reduce((sum, j) => sum + (Number(j.budget) || 0), 0);
   const approvedProposalsCount = proposals.filter(p => p.status === 'aprobada').length;
@@ -312,9 +360,23 @@ export default function AdminPanel() {
             <Logo height={34} />
             <span className="text-white font-semibold hidden sm:block">| Panel de Administración</span>
           </div>
-          <button onClick={() => router.push('/')} className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors">
-            <ArrowLeft size={14} /> Volver al inicio
-          </button>
+          <div className="flex items-center gap-4">
+            <NotificationBell userId={currentUserId} />
+            
+            {/* 🆕 BOTÓN PARA GESTIONAR CATEGORÍAS */}
+            <button 
+              onClick={() => router.push('/admin/categories')} 
+              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
+              title="Gestionar Categorías"
+            >
+              <FolderOpen size={18} /> 
+              <span className="hidden sm:inline">Categorías</span>
+            </button>
+            
+            <button onClick={() => router.push('/')} className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors">
+              <ArrowLeft size={14} /> Volver al inicio
+            </button>
+          </div>
         </div>
       </header>
 
@@ -363,12 +425,11 @@ export default function AdminPanel() {
               <span className="flex items-center justify-center gap-2"><BarChart3 size={16} /> Estadísticas</span>
             </button>
             <button onClick={() => setActiveTab('jobs')} className={`flex-1 px-6 py-4 font-semibold text-sm transition-colors whitespace-nowrap ${activeTab === 'jobs' ? 'text-brand-negro border-b-2 border-brand-rojo bg-brand-crema/30' : 'text-brand-gris hover:text-brand-negro'}`}>
-              <span className="flex items-center justify-center gap-2"><Briefcase size={16} /> Trabajos ({jobs.length})</span>
+              <span className="flex items-center justify-center gap-2"><Briefcase size={16} /> Trabajos ({stats.totalJobs})</span>
             </button>
             <button onClick={() => setActiveTab('proposals')} className={`flex-1 px-6 py-4 font-semibold text-sm transition-colors whitespace-nowrap ${activeTab === 'proposals' ? 'text-brand-negro border-b-2 border-brand-rojo bg-brand-crema/30' : 'text-brand-gris hover:text-brand-negro'}`}>
               <span className="flex items-center justify-center gap-2"><Users size={16} /> Propuestas ({proposals.length})</span>
             </button>
-            {/* 🆕 NUEVA PESTAÑA DE USUARIOS */}
             <button onClick={() => setActiveTab('users')} className={`flex-1 px-6 py-4 font-semibold text-sm transition-colors whitespace-nowrap ${activeTab === 'users' ? 'text-brand-negro border-b-2 border-brand-rojo bg-brand-crema/30' : 'text-brand-gris hover:text-brand-negro'}`}>
               <span className="flex items-center justify-center gap-2"><Shield size={16} /> Usuarios ({users.length})</span>
             </button>
@@ -442,42 +503,115 @@ export default function AdminPanel() {
                         <option value="completado">Completado</option>
                       </select>
                     </div>
-                    <div className="mb-4 text-sm text-brand-gris">Mostrando {filteredJobs.length} de {jobs.length} trabajos {totalUnreadMessages > 0 && <span className="ml-3 text-brand-rojo font-semibold">🔔 {totalUnreadMessages} mensajes sin leer</span>}</div>
-                    <div className="space-y-3">
-                      {filteredJobs.map(job => {
-                        const jobProposalCount = proposals.filter(p => p.job_id === job.id).length;
-                        return (
-                          <div key={job.id} className="border border-brand-borde rounded-lg p-5 hover:shadow-md transition-shadow">
-                            <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
-                              <div className="flex-1"><h3 className="font-bold text-brand-negro text-lg">{job.title}</h3><p className="text-sm text-brand-gris">{job.category}</p></div>
-                              <Badge estado={job.status} />
-                            </div>
-                            <p className="text-sm text-brand-texto mb-3 line-clamp-2">{job.description}</p>
-                            <div className="flex justify-between items-center flex-wrap gap-3">
-                              <span className="font-semibold text-brand-negro">Presupuesto: ${Number(job.budget).toLocaleString()}</span>
-                              <div className="flex gap-2 flex-wrap">
-                                {jobProposalCount > 0 && <button onClick={() => { setSelectedJob(job.id); }} className="tm-btn-outline flex items-center gap-1 text-xs"><Eye size={14} /> Ver Propuestas</button>}
-                                <select value={job.status} onChange={(e) => handleJobStatusChange(job.id, e.target.value)} className="tm-input text-xs py-1.5" style={{ width: 'auto' }}>
-                                  <option value="abierto">Abierto</option>
-                                  <option value="en_progreso">En Progreso</option>
-                                  <option value="en_revision">En Revisión</option>
-                                  <option value="completado">Completado</option>
-                                </select>
-                                <button onClick={() => handleDeleteJob(job.id)} className="text-brand-rojo hover:text-brand-rojo-hover p-2"><Trash2 size={16} /></button>
-                                {job.status === 'completado' && <button onClick={() => setReviewJob(job)} className="tm-btn-outline flex items-center gap-1 text-xs"><Star size={14} /> Reseña</button>}
-                                {(job.status === 'en_progreso' || job.status === 'en_revision') && <button onClick={() => handleAnularAsignacion(job.id)} className="bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 px-3 py-1.5 rounded-lg flex items-center gap-1 text-xs font-semibold"><RotateCcw size={14} /> Anular</button>}
-                                {(job.status === 'en_progreso' || job.status === 'en_revision' || job.status === 'completado') && (
-                                  <button onClick={() => setChatJob(job)} className="tm-btn-outline flex items-center gap-1 text-xs relative">
-                                    <MessageCircle size={14} /> Chat
-                                    {job.unread_messages && job.unread_messages > 0 && <span className="absolute -top-2 -right-2 bg-brand-rojo text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">{job.unread_messages}</span>}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                    
+                    <div className="mb-4 flex justify-between items-center flex-wrap gap-2 text-sm text-brand-gris">
+                      <span>
+                        Mostrando {jobs.length} de {totalFilteredJobs} trabajos
+                        {totalFilteredJobs > 0 && <span className="ml-2 text-brand-negro font-semibold">(Página {currentPage} de {totalPages})</span>}
+                      </span>
+                      {jobs.reduce((sum, job) => sum + (job.unread_messages || 0), 0) > 0 && (
+                        <span className="text-brand-rojo font-semibold">
+                          🔔 {jobs.reduce((sum, job) => sum + (job.unread_messages || 0), 0)} mensajes sin leer
+                        </span>
+                      )}
                     </div>
+
+                    {jobs.length === 0 ? (
+                      <p className="text-brand-gris text-center py-8">
+                        {searchQuery || statusFilter !== 'todos' 
+                          ? 'No se encontraron trabajos con los filtros aplicados' 
+                          : 'No hay trabajos creados aún'}
+                      </p>
+                    ) : (
+                      <>
+                        <div className="space-y-3">
+                          {jobs.map(job => {
+                            const jobProposalCount = proposals.filter(p => p.job_id === job.id).length;
+                            return (
+                              <div key={job.id} className="border border-brand-borde rounded-lg p-5 hover:shadow-md transition-shadow">
+                                <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
+                                  <div className="flex-1"><h3 className="font-bold text-brand-negro text-lg">{job.title}</h3><p className="text-sm text-brand-gris">{job.category}</p></div>
+                                  <Badge estado={job.status} />
+                                </div>
+                                <p className="text-sm text-brand-texto mb-3 line-clamp-2">{job.description}</p>
+                                <div className="flex justify-between items-center flex-wrap gap-3">
+                                  <span className="font-semibold text-brand-negro">Presupuesto: ${Number(job.budget).toLocaleString()}</span>
+                                  <div className="flex gap-2 flex-wrap">
+                                    {jobProposalCount > 0 && <button onClick={() => { setSelectedJob(job.id); }} className="tm-btn-outline flex items-center gap-1 text-xs"><Eye size={14} /> Ver Propuestas</button>}
+                                    <select value={job.status} onChange={(e) => handleJobStatusChange(job.id, e.target.value)} className="tm-input text-xs py-1.5" style={{ width: 'auto' }}>
+                                      <option value="abierto">Abierto</option>
+                                      <option value="en_progreso">En Progreso</option>
+                                      <option value="en_revision">En Revisión</option>
+                                      <option value="completado">Completado</option>
+                                    </select>
+                                    <button onClick={() => handleDeleteJob(job.id)} className="text-brand-rojo hover:text-brand-rojo-hover p-2"><Trash2 size={16} /></button>
+                                    {job.status === 'completado' && <button onClick={() => setReviewJob(job)} className="tm-btn-outline flex items-center gap-1 text-xs"><Star size={14} /> Reseña</button>}
+                                    {(job.status === 'en_progreso' || job.status === 'en_revision') && <button onClick={() => handleAnularAsignacion(job.id)} className="bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 px-3 py-1.5 rounded-lg flex items-center gap-1 text-xs font-semibold"><RotateCcw size={14} /> Anular</button>}
+                                    {(job.status === 'en_progreso' || job.status === 'en_revision' || job.status === 'completado') && (
+                                      <button onClick={() => setChatJob(job)} className="tm-btn-outline flex items-center gap-1 text-xs relative">
+                                        <MessageCircle size={14} /> Chat
+                                        {job.unread_messages && job.unread_messages > 0 && <span className="absolute -top-2 -right-2 bg-brand-rojo text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">{job.unread_messages}</span>}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {totalPages > 1 && (
+                          <div className="mt-8 flex justify-center items-center gap-2">
+                            <button
+                              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                              disabled={currentPage === 1}
+                              className="tm-btn-outline flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <ChevronLeft size={16} />
+                              Anterior
+                            </button>
+                            
+                            <div className="flex items-center gap-1">
+                              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                let pageNum;
+                                if (totalPages <= 5) {
+                                  pageNum = i + 1;
+                                } else if (currentPage <= 3) {
+                                  pageNum = i + 1;
+                                } else if (currentPage >= totalPages - 2) {
+                                  pageNum = totalPages - 4 + i;
+                                } else {
+                                  pageNum = currentPage - 2 + i;
+                                }
+                                
+                                return (
+                                  <button
+                                    key={pageNum}
+                                    onClick={() => setCurrentPage(pageNum)}
+                                    className={`w-10 h-10 rounded-lg font-semibold text-sm transition-colors ${
+                                      currentPage === pageNum
+                                        ? 'bg-brand-rojo text-white'
+                                        : 'bg-white text-brand-negro border border-brand-borde hover:bg-brand-crema'
+                                    }`}
+                                  >
+                                    {pageNum}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            <button
+                              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                              disabled={currentPage === totalPages}
+                              className="tm-btn-outline flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Siguiente
+                              <ChevronRight size={16} />
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -507,7 +641,7 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* 🆕 PESTAÑA USUARIOS */}
+            {/* PESTAÑA USUARIOS */}
             {activeTab === 'users' && (
               <div>
                 {loadingUsers ? (

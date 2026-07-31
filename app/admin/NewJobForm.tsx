@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { X, Plus, DollarSign, Tag, Package, AlertCircle } from 'lucide-react';
 
@@ -9,28 +9,65 @@ interface NewJobFormProps {
   onSuccess: () => void;
 }
 
-const CATEGORIAS_SUGERIDAS = [
-  'Diseño',
-  'Desarrollo',
-  'Marketing',
-  'Audiovisual',
-  'Técnico',
-  'Fotografía',
-  'Redacción',
-  'Consultoría'
-];
+interface Category {
+  id: string;
+  name: string;
+}
+
+interface Subcategory {
+  id: string;
+  name: string;
+}
 
 export default function NewJobForm({ onClose, onSuccess }: NewJobFormProps) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    category: '',
     budget: '',
     entregables: '',
   });
+  
+  // Estados para categorías y subcategorías
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState('');
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState('');
+  
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+
+  // Cargar categorías al montar el componente
+  useEffect(() => {
+    async function loadCategories() {
+      const { data } = await supabase
+        .from('categories')
+        .select('id, name')
+        .order('name');
+      setCategories(data || []);
+    }
+    loadCategories();
+  }, []);
+
+  // Cargar subcategorías cuando cambia la categoría seleccionada
+  useEffect(() => {
+    async function loadSubcategories() {
+      if (!selectedCategoryId) {
+        setSubcategories([]);
+        setSelectedSubcategoryId('');
+        return;
+      }
+
+      const { data } = await supabase
+        .from('subcategories')
+        .select('id, name')
+        .eq('category_id', selectedCategoryId)
+        .order('name');
+      
+      setSubcategories(data || []);
+      setSelectedSubcategoryId(''); // Resetear subcategoría al cambiar de categoría
+    }
+    loadSubcategories();
+  }, [selectedCategoryId]);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -41,7 +78,7 @@ export default function NewJobForm({ onClose, onSuccess }: NewJobFormProps) {
       newErrors.title = 'El título debe tener al menos 10 caracteres';
     }
 
-    if (!formData.category.trim()) {
+    if (!selectedCategoryId) {
       newErrors.category = 'La categoría es obligatoria';
     }
 
@@ -69,12 +106,17 @@ export default function NewJobForm({ onClose, onSuccess }: NewJobFormProps) {
     setLoading(true);
 
     try {
+      // Construir el string de categoría (ej: "Diseño > Diseño de Logo")
+      const categoryName = categories.find(c => c.id === selectedCategoryId)?.name || '';
+      const subcategoryName = subcategories.find(s => s.id === selectedSubcategoryId)?.name || '';
+      const finalCategoryString = subcategoryName ? `${categoryName} > ${subcategoryName}` : categoryName;
+
       const { error } = await supabase
         .from('jobs')
         .insert({
           title: formData.title.trim(),
           description: formData.description.trim(),
-          category: formData.category.trim(),
+          category: finalCategoryString, // Guardamos el string combinado
           budget: parseFloat(formData.budget),
           entregables: formData.entregables.trim() || 'A definir con el freelancer',
           status: 'abierto',
@@ -88,14 +130,6 @@ export default function NewJobForm({ onClose, onSuccess }: NewJobFormProps) {
       setErrors({ submit: 'Error al crear el trabajo. Por favor, intenta de nuevo.' });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleCategorySelect = (category: string) => {
-    setFormData({ ...formData, category });
-    setShowCategoryDropdown(false);
-    if (errors.category) {
-      setErrors({ ...errors, category: '' });
     }
   };
 
@@ -141,6 +175,7 @@ export default function NewJobForm({ onClose, onSuccess }: NewJobFormProps) {
               }}
               className={`tm-input ${errors.title ? 'border-red-500 focus:outline-red-500' : ''}`}
               placeholder="Ej: Diseño de landing page para cliente retail"
+              maxLength={100}
             />
             {errors.title && (
               <p className="text-red-600 text-xs mt-1 flex items-center gap-1">
@@ -153,7 +188,7 @@ export default function NewJobForm({ onClose, onSuccess }: NewJobFormProps) {
             </p>
           </div>
 
-          {/* Categoría y Presupuesto en fila */}
+          {/* Categoría y Subcategoría en fila */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Categoría */}
             <div>
@@ -161,38 +196,20 @@ export default function NewJobForm({ onClose, onSuccess }: NewJobFormProps) {
                 Categoría *
               </label>
               <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowCategoryDropdown(!showCategoryDropdown)}
-                  className={`tm-input text-left flex justify-between items-center ${
-                    errors.category ? 'border-red-500' : ''
-                  } ${!formData.category ? 'text-brand-gris' : 'text-brand-negro'}`}
+                <Tag size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                <select
+                  value={selectedCategoryId}
+                  onChange={(e) => {
+                    setSelectedCategoryId(e.target.value);
+                    if (errors.category) setErrors({ ...errors, category: '' });
+                  }}
+                  className={`tm-input pl-10 appearance-none ${errors.category ? 'border-red-500' : ''}`}
                 >
-                  <span className="flex items-center gap-2">
-                    <Tag size={16} />
-                    {formData.category || 'Seleccionar categoría'}
-                  </span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                
-                {showCategoryDropdown && (
-                  <div className="absolute z-10 mt-1 w-full bg-white border border-brand-borde rounded-lg shadow-lg max-h-60 overflow-auto">
-                    {CATEGORIAS_SUGERIDAS.map((cat) => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => handleCategorySelect(cat)}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-brand-crema transition-colors ${
-                          formData.category === cat ? 'bg-brand-crema font-semibold' : ''
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                  <option value="">Seleccionar categoría</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
               </div>
               {errors.category && (
                 <p className="text-red-600 text-xs mt-1 flex items-center gap-1">
@@ -202,35 +219,56 @@ export default function NewJobForm({ onClose, onSuccess }: NewJobFormProps) {
               )}
             </div>
 
-            {/* Presupuesto */}
+            {/* Subcategoría */}
             <div>
               <label className="block text-sm font-semibold text-brand-negro mb-2">
-                Presupuesto (USD) *
+                Subcategoría {selectedCategoryId ? '*' : '(Selecciona categoría primero)'}
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <DollarSign size={16} className="text-brand-gris" />
-                </div>
-                <input
-                  type="number"
-                  min="1"
-                  step="0.01"
-                  value={formData.budget}
-                  onChange={(e) => {
-                    setFormData({ ...formData, budget: e.target.value });
-                    if (errors.budget) setErrors({ ...errors, budget: '' });
-                  }}
-                  className={`tm-input pl-10 ${errors.budget ? 'border-red-500 focus:outline-red-500' : ''}`}
-                  placeholder="Ej: 500"
-                />
+                <Tag size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                <select
+                  value={selectedSubcategoryId}
+                  onChange={(e) => setSelectedSubcategoryId(e.target.value)}
+                  className="tm-input pl-10 appearance-none disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  disabled={!selectedCategoryId}
+                >
+                  <option value="">Seleccionar subcategoría</option>
+                  {subcategories.map((sub) => (
+                    <option key={sub.id} value={sub.id}>{sub.name}</option>
+                  ))}
+                </select>
               </div>
-              {errors.budget && (
-                <p className="text-red-600 text-xs mt-1 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  {errors.budget}
-                </p>
-              )}
             </div>
+          </div>
+
+          {/* Presupuesto */}
+          <div>
+            <label className="block text-sm font-semibold text-brand-negro mb-2">
+              Presupuesto (USD) *
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <DollarSign size={16} className="text-brand-gris" />
+              </div>
+              <input
+                type="number"
+                min="1"
+                step="0.01"
+                value={formData.budget}
+                onChange={(e) => {
+                  setFormData({ ...formData, budget: e.target.value });
+                  if (errors.budget) setErrors({ ...errors, budget: '' });
+                }}
+                className={`tm-input pl-10 ${errors.budget ? 'border-red-500 focus:outline-red-500' : ''}`}
+                placeholder="Ej: 500"
+              />
+            </div>
+            {errors.budget && (
+              <p className="text-red-600 text-xs mt-1 flex items-center gap-1">
+                <AlertCircle size={12} />
+                {errors.budget}
+              </p>
+            )}
           </div>
 
           {/* Descripción */}

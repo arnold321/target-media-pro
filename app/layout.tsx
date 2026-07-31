@@ -1,30 +1,69 @@
-import type { Metadata } from "next";
-import { Poppins } from "next/font/google";
-import "./globals.css";
-import { Providers } from "@/app/components/Providers";
-
-const poppins = Poppins({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-poppins",
-});
+import type { Metadata } from 'next';
+import './globals.css';
+import { ToastProvider } from '@/app/components/ToastProvider';
 
 export const metadata: Metadata = {
-  title: "Target Media — Portal de trabajos",
-  description: "Portal de trabajos para freelancers de Target Media",
+  title: 'Target Media Connect - Conectamos Talento Freelance con Oportunidades',
+  description: 'Plataforma profesional para conectar empresas con freelancers talentosos. Publica trabajos, recibe propuestas y gestiona proyectos de forma eficiente.',
+  keywords: ['freelance', 'trabajos', 'diseño', 'desarrollo', 'marketing', 'target media', 'conectar talento'],
+  authors: [{ name: 'Target Media' }],
+  creator: 'Target Media Connect',
+  publisher: 'Target Media',
+  metadataBase: new URL('https://targetdcorp.targetmediaconnect.com'),
+  alternates: {
+    canonical: '/',
+  },
+  openGraph: {
+    type: 'website',
+    locale: 'es_ES',
+    url: 'https://targetdcorp.targetmediaconnect.com',
+    siteName: 'Target Media Connect',
+    title: 'Target Media Connect - Conectamos Talento Freelance con Oportunidades',
+    description: 'Plataforma profesional para conectar empresas con freelancers talentosos. Publica trabajos, recibe propuestas y gestiona proyectos de forma eficiente.',
+    images: [
+      {
+        url: '/og-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'Target Media Connect - Plataforma Freelance',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Target Media Connect - Conectamos Talento Freelance con Oportunidades',
+    description: 'Plataforma profesional para conectar empresas con freelancers talentosos.',
+    images: ['/og-image.png'],
+    creator: '@targetmedia',
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="es" className={poppins.variable}>
-      <body className="font-sans antialiased bg-brand-crema text-brand-texto">
-        <Providers>
+    <html lang="es">
+      <head>
+        <link rel="icon" href="/favicon.ico" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+      </head>
+      <body>
+        <ToastProvider>  {/* ✅ Envolver todo con ToastProvider */}
           {children}
-        </Providers>
+        </ToastProvider>
       </body>
     </html>
   );
