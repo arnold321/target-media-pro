@@ -54,7 +54,6 @@ export default function NotificationBell({ userId, onNotificationClick }: Notifi
     
     loadNotifications();
     
-    // Solo suscribirse si no está ya suscrito
     if (!isSubscribedRef.current) {
       setupRealtime();
       isSubscribedRef.current = true;
@@ -69,7 +68,6 @@ export default function NotificationBell({ userId, onNotificationClick }: Notifi
     
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
-      // Limpiar canal al desmontar
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         isSubscribedRef.current = false;
@@ -96,10 +94,8 @@ export default function NotificationBell({ userId, onNotificationClick }: Notifi
   }
 
   function setupRealtime() {
-    // Crear y guardar referencia al canal
     channelRef.current = supabase.channel(`notifications-${userId}`);
 
-    // Suscribirse y agregar callbacks en la misma cadena
     channelRef.current
       .on(
         'postgres_changes',
@@ -109,7 +105,7 @@ export default function NotificationBell({ userId, onNotificationClick }: Notifi
           table: 'notifications',
           filter: `user_id=eq.${userId}`,
         },
-        (payload) => {
+        (payload: any) => { // ✅ CORREGIDO: Agregado ': any'
           const newNotif = payload.new as Notification;
           setNotifications(prev => [newNotif, ...prev]);
           setUnreadCount(prev => prev + 1);
@@ -123,7 +119,7 @@ export default function NotificationBell({ userId, onNotificationClick }: Notifi
           table: 'notifications',
           filter: `user_id=eq.${userId}`,
         },
-        (payload) => {
+        (payload: any) => { // ✅ CORREGIDO: Agregado ': any'
           const updated = payload.new as Notification;
           setNotifications(prev => prev.map(n => n.id === updated.id ? updated : n));
           setUnreadCount(prev => updated.read ? prev - 1 : prev);
