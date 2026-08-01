@@ -7,6 +7,8 @@ import Auth from './components/Auth';
 import { Logo } from './components/ui';
 import { LogOut, LayoutDashboard, Briefcase } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import ThemeToggle from './components/ThemeToggle';
+import Link from 'next/link';
 
 export default function Home() {
   const [user, setUser] = useState<any>(null);
@@ -101,6 +103,15 @@ export default function Home() {
                 <span className="hidden sm:inline">Mis Trabajos</span>
               </button>
             )}
+            
+            <ThemeToggle />
+
+            <Link
+  href="/ranking"
+  className="text-sm text-gray-300 hover:text-white transition-colors"
+>
+  🏆 Ranking
+</Link>
             
             <button
               onClick={() => router.push('/portfolio')}

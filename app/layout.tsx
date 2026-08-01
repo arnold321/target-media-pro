@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ToastProvider } from '@/app/components/ToastProvider';
+import { ThemeProvider } from '@/app/components/ThemeContext';
 
 export const metadata: Metadata = {
   title: 'Target Media Connect - Conectamos Talento Freelance con Oportunidades',
@@ -61,9 +62,11 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
       <body>
-        <ToastProvider>  {/* ✅ Envolver todo con ToastProvider */}
-          {children}
-        </ToastProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            {children}
+          </ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

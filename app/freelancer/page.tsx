@@ -2,16 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Briefcase, Upload, CheckCircle, Clock, ArrowLeft, DollarSign, Award, FileText, TrendingUp, XCircle, User, Mail, Phone, Save, Edit3, MessageCircle, Search, Filter, BarChart3, PieChart as PieChartIcon } from 'lucide-react';
+import { Briefcase, Upload, CheckCircle, Clock, ArrowLeft, DollarSign, Award, FileText, TrendingUp, XCircle, User, Mail, Phone, Save, Edit3, MessageCircle, Search, Filter, BarChart3, PieChart as PieChartIcon, CreditCard } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Logo, Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
 import ChatModal from '@/app/components/ChatModal';
-import NotificationBell from '@/app/components/NotificationBell'; // 🆕 NUEVO
-import { createNotification } from '@/lib/notifications'; // 🆕 NUEVO
+import NotificationBell from '@/app/components/NotificationBell';
+import { createNotification } from '@/lib/notifications';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import type { Metadata } from 'next';
-
+import PaymentMethods from './PaymentMethods';
 
 interface AssignedJob {
   id: string;
@@ -63,7 +62,7 @@ export default function FreelancerDashboard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'assigned' | 'proposals' | 'profile' | 'stats'>('assigned');
+  const [activeTab, setActiveTab] = useState<'assigned' | 'proposals' | 'profile' | 'stats' | 'payments'>('assigned');
   const [stats, setStats] = useState({
     active: 0,
     inReview: 0,
@@ -231,7 +230,6 @@ export default function FreelancerDashboard() {
     }
   }
 
-  // 🆕 ACTUALIZADO: Con notificación al admin al subir entregable
   async function handleUploadDeliverable(jobId: string, file: File) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -278,7 +276,6 @@ export default function FreelancerDashboard() {
       const currentJob = jobs.find(j => j.id === jobId);
 
       if (profileData && currentJob) {
-        // Notificar al admin
         const { data: adminProfile } = await supabase
           .from('profiles')
           .select('id')
@@ -348,7 +345,6 @@ export default function FreelancerDashboard() {
 
   const totalUnreadMessages = jobs.reduce((sum, job) => sum + (job.unread_messages || 0), 0);
 
-  // Estadísticas del Freelancer
   const approvalRate = proposals.length > 0 ? Math.round((stats.approvedProposals / proposals.length) * 100) : 0;
   const avgBudget = stats.approvedProposals > 0
     ? Math.round(proposals.filter(p => p.status === 'aprobada').reduce((sum, p) => sum + Number(p.proposed_budget || 0), 0) / stats.approvedProposals)
@@ -395,7 +391,6 @@ export default function FreelancerDashboard() {
             <span className="text-white font-semibold hidden sm:block">| Panel Freelancer</span>
           </div>
           <div className="flex items-center gap-4">
-            {/* 🆕 CAMPANA DE NOTIFICACIONES */}
             <NotificationBell userId={currentUserId} />
             <button onClick={() => router.push('/')} className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors">
               <ArrowLeft size={14} /> Volver al inicio
@@ -420,6 +415,9 @@ export default function FreelancerDashboard() {
             </button>
             <button onClick={() => setActiveTab('stats')} className={`flex-1 px-6 py-4 font-semibold text-sm transition-colors whitespace-nowrap ${activeTab === 'stats' ? 'text-brand-negro border-b-2 border-brand-rojo bg-brand-crema/30' : 'text-brand-gris hover:text-brand-negro'}`}>
               <BarChart3 size={16} className="inline mr-2" /> Estadísticas
+            </button>
+            <button onClick={() => setActiveTab('payments')} className={`flex-1 px-6 py-4 font-semibold text-sm transition-colors whitespace-nowrap ${activeTab === 'payments' ? 'text-brand-negro border-b-2 border-brand-rojo bg-brand-crema/30' : 'text-brand-gris hover:text-brand-negro'}`}>
+              <CreditCard size={16} className="inline mr-2" /> Métodos de Pago
             </button>
             <button onClick={() => setActiveTab('profile')} className={`flex-1 px-6 py-4 font-semibold text-sm transition-colors whitespace-nowrap ${activeTab === 'profile' ? 'text-brand-negro border-b-2 border-brand-rojo bg-brand-crema/30' : 'text-brand-gris hover:text-brand-negro'}`}>
               <User size={16} className="inline mr-2" /> Mi Perfil
@@ -474,7 +472,7 @@ export default function FreelancerDashboard() {
 
                 <div className="mb-4 text-sm text-brand-gris">
                   Mostrando {filteredJobs.length} de {jobs.length} trabajos
-                  {totalUnreadMessages > 0 && <span className="ml-3 text-brand-rojo font-semibold">🔔 {totalUnreadMessages} mensaje{totalUnreadMessages !== 1 ? 's' : ''} sin leer</span>}
+                  {totalUnreadMessages > 0 && <span className="ml-3 text-brand-rojo font-semibold"> {totalUnreadMessages} mensaje{totalUnreadMessages !== 1 ? 's' : ''} sin leer</span>}
                 </div>
 
                 {filteredJobs.length === 0 ? (
@@ -701,6 +699,8 @@ export default function FreelancerDashboard() {
                 </div>
               </div>
             )}
+
+            {activeTab === 'payments' && <PaymentMethods />}
 
             {activeTab === 'profile' && profile && (
               <>

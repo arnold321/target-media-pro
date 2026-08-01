@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link'; // ✅ Import agregado
 import { Logo } from '@/app/components/ui';
 import { Lock, Star, ArrowLeft } from 'lucide-react';
 
@@ -14,8 +15,8 @@ interface PortfolioItem {
   year: number;
   budget?: number;
   created_at: string;
-  rating: number | null;       // <-- AGREGAR
-  review_text: string | null;  // <-- AGREGAR
+  rating: number | null;
+  review_text: string | null;
 }
 
 export default function PortfolioPage() {
@@ -48,25 +49,24 @@ export default function PortfolioPage() {
       }
       
       console.log('✅ Datos recibidos:', data?.length, 'trabajos');
-      console.log('📋 Primer trabajo:', data?.[0]);
       
       if (!data || data.length === 0) {
-        console.log('️ No hay trabajos completados en la BD');
+        console.log('⚠️ No hay trabajos completados en la BD');
         setLoading(false);
         return;
       }
 
- const transformedData: PortfolioItem[] = data.map(job => ({
-  id: job.id,
-  title: job.title,
-  category: job.category,
-  description: job.description || '',
-  year: new Date(job.created_at).getFullYear(),
-  budget: job.budget,
-  created_at: job.created_at,
-  rating: job.rating || null,       // <-- AGREGAR
-  review_text: job.review_text || null, // <-- AGREGAR
-}));
+      const transformedData: PortfolioItem[] = data.map(job => ({
+        id: job.id,
+        title: job.title,
+        category: job.category,
+        description: job.description || '',
+        year: new Date(job.created_at).getFullYear(),
+        budget: job.budget,
+        created_at: job.created_at,
+        rating: job.rating || null,
+        review_text: job.review_text || null,
+      }));
 
       console.log('📊 Total transformados:', transformedData.length);
 
@@ -122,19 +122,28 @@ export default function PortfolioPage() {
 
   return (
     <div className="min-h-screen bg-brand-crema flex flex-col">
+      {/* ✅ HEADER CORREGIDO */}
       <header className="bg-brand-negro py-3.5 px-5 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-3 flex-wrap">
           <div className="flex items-center gap-4">
             <Logo height={34} />
             <span className="text-white font-semibold hidden sm:block">| Portafolio</span>
           </div>
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
-          >
-            <ArrowLeft size={14} />
-            <span>Volver al inicio</span>
-          </button>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/ranking"
+              className="text-sm text-gray-300 hover:text-white transition-colors"
+            >
+              🏆 Ranking
+            </Link>
+            <button
+              onClick={() => router.push('/')}
+              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
+            >
+              <ArrowLeft size={14} />
+              <span>Volver al inicio</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -178,53 +187,52 @@ export default function PortfolioPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {featuredItems.map((item) => (
-<article 
-  key={item.id} 
-  className="bg-white rounded-xl border border-brand-borde p-6 hover:shadow-lg transition-shadow flex flex-col h-full"
->
-  <div className="flex justify-between items-start mb-3">
-    <span className="bg-brand-crema text-brand-vino font-semibold text-xs px-3 py-1 rounded-full">
-      {item.category}
-    </span>
-    <span className="text-sm text-brand-gris">{item.year}</span>
-  </div>
+                <article 
+                  key={item.id} 
+                  className="bg-white rounded-xl border border-brand-borde p-6 hover:shadow-lg transition-shadow flex flex-col h-full"
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <span className="bg-brand-crema text-brand-vino font-semibold text-xs px-3 py-1 rounded-full">
+                      {item.category}
+                    </span>
+                    <span className="text-sm text-brand-gris">{item.year}</span>
+                  </div>
 
-  <h3 className="text-lg font-bold text-brand-negro mb-3 leading-tight">
-    {item.title}
-  </h3>
+                  <h3 className="text-lg font-bold text-brand-negro mb-3 leading-tight">
+                    {item.title}
+                  </h3>
 
-  <div className="flex items-center gap-1 text-xs text-brand-gris mb-3">
-    <Lock size={12} />
-    <span>Sector · identidad reservada</span>
-  </div>
+                  <div className="flex items-center gap-1 text-xs text-brand-gris mb-3">
+                    <Lock size={12} />
+                    <span>Sector · identidad reservada</span>
+                  </div>
 
-  <p className="text-sm text-brand-texto leading-relaxed mb-4 flex-grow">
-    {item.description}
-  </p>
+                  <p className="text-sm text-brand-texto leading-relaxed mb-4 flex-grow">
+                    {item.description}
+                  </p>
 
-  {/* SECCIÓN DE RESEÑA (Solo se muestra si tiene rating) */}
-  {item.rating && (
-    <div className="mt-4 pt-4 border-t border-brand-borde">
-      <div className="flex items-center gap-1 mb-2">
-        {[1, 2, 3, 4, 5].map((star) => (
-          <Star
-            key={star}
-            size={14}
-            className={`${
-              star <= item.rating! ? 'fill-yellow-400 text-yellow-400' : 'fill-gray-200 text-gray-200'
-            }`}
-          />
-        ))}
-        <span className="text-xs font-bold text-brand-negro ml-2">{item.rating}/5</span>
-      </div>
-      {item.review_text && (
-        <p className="text-xs text-brand-gris italic leading-relaxed">
-          "{item.review_text}"
-        </p>
-      )}
-    </div>
-  )}
-</article>
+                  {item.rating && (
+                    <div className="mt-4 pt-4 border-t border-brand-borde">
+                      <div className="flex items-center gap-1 mb-2">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Star
+                            key={star}
+                            size={14}
+                            className={`${
+                              star <= item.rating! ? 'fill-yellow-400 text-yellow-400' : 'fill-gray-200 text-gray-200'
+                            }`}
+                          />
+                        ))}
+                        <span className="text-xs font-bold text-brand-negro ml-2">{item.rating}/5</span>
+                      </div>
+                      {item.review_text && (
+                        <p className="text-xs text-brand-gris italic leading-relaxed">
+                          "{item.review_text}"
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </article>
               ))}
             </div>
           </div>

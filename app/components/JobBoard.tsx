@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Heart, DollarSign, Clock, Briefcase, Share2, X, CheckCircle } from 'lucide-react';
+import { Heart, DollarSign, Clock, Briefcase, Share2, Search, Filter, X, TrendingUp, TrendingDown } from 'lucide-react';
 import { Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
+import Link from 'next/link';
 
 interface Job {
   id: string;
@@ -22,17 +23,30 @@ interface JobBoardProps {
   userRole: string | null;
 }
 
+type SortOption = 'recent' | 'budget_high' | 'budget_low';
+type DateFilter = 'all' | '7days' | '30days';
+
 export default function JobBoard({ userId, userRole }: JobBoardProps) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [favoriteJobs, setFavoriteJobs] = useState<string[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [applyForm, setApplyForm] = useState({
     cover_letter: '',
     proposed_budget: '',
   });
   const [applying, setApplying] = useState(false);
+  
+  // Estados de filtros
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [minBudget, setMinBudget] = useState('');
+  const [maxBudget, setMaxBudget] = useState('');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
+  const [sortBy, setSortBy] = useState<SortOption>('recent');
+  
   const toast = useToast();
 
   useEffect(() => {
@@ -82,8 +96,8 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
   }
 
   async function handleShare(job: Job) {
-    const shareUrl = window.location.href;
-    const shareText = `¡Hola! Vi esta oferta de trabajo y pensé en ti:\n\n🚀 *${job.title}*\n💵 Presupuesto: $${Number(job.budget).toLocaleString()}\n📂 Categoría: ${job.category}\n\nMira los detalles y postúlate aquí:`;
+    const shareUrl = `${window.location.origin}/trabajo/${job.id}`;
+    const shareText = `¡Hola! Vi esta oferta de trabajo y pensé en ti:\n\n🚀 *${job.title}*\n Presupuesto: $${Number(job.budget).toLocaleString()}\n📂 Categoría: ${job.category}\n\nMira los detalles y postúlate aquí:`;
 
     try {
       if (navigator.share) {
@@ -136,6 +150,73 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
     }
   }
 
+  function clearFilters() {
+    setSearchQuery('');
+    setSelectedCategory('');
+    setMinBudget('');
+    setMaxBudget('');
+    setDateFilter('all');
+    setSortBy('recent');
+    toast.success('Filtros limpiados');
+  }
+
+  // Obtener categorías únicas de los trabajos
+  const categories = useMemo(() => {
+    const cats = new Set(jobs.map(job => job.category));
+    return Array.from(cats).sort();
+  }, [jobs]);
+
+  // Aplicar filtros y ordenamiento
+  const filteredJobs = useMemo(() => {
+    let result = [...jobs];
+
+    // Filtro de búsqueda
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(job =>
+        job.title.toLowerCase().includes(query) ||
+        job.description.toLowerCase().includes(query) ||
+        job.category.toLowerCase().includes(query)
+      );
+    }
+
+    // Filtro por categoría
+    if (selectedCategory) {
+      result = result.filter(job => job.category === selectedCategory);
+    }
+
+    // Filtro por presupuesto mínimo
+    if (minBudget) {
+      result = result.filter(job => job.budget >= parseFloat(minBudget));
+    }
+
+    // Filtro por presupuesto máximo
+    if (maxBudget) {
+      result = result.filter(job => job.budget <= parseFloat(maxBudget));
+    }
+
+    // Filtro por fecha
+    if (dateFilter !== 'all') {
+      const now = new Date();
+      const days = dateFilter === '7days' ? 7 : 30;
+      const cutoffDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      result = result.filter(job => new Date(job.created_at) >= cutoffDate);
+    }
+
+    // Ordenamiento
+    if (sortBy === 'budget_high') {
+      result.sort((a, b) => b.budget - a.budget);
+    } else if (sortBy === 'budget_low') {
+      result.sort((a, b) => a.budget - b.budget);
+    } else {
+      result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+
+    return result;
+  }, [jobs, searchQuery, selectedCategory, minBudget, maxBudget, dateFilter, sortBy]);
+
+  const hasActiveFilters = searchQuery || selectedCategory || minBudget || maxBudget || dateFilter !== 'all' || sortBy !== 'recent';
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -146,19 +227,187 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-extrabold text-brand-negro">Trabajos Disponibles</h2>
-        <span className="text-sm text-brand-gris">{jobs.length} oportunidades activas</span>
+      {/* Header con búsqueda y filtros */}
+      <div className="mb-6 space-y-4">
+        <div className="flex justify-between items-center flex-wrap gap-4">
+          <div>
+            <h2 className="text-2xl font-extrabold text-brand-negro">Trabajos Disponibles</h2>
+            <p className="text-sm text-brand-gris mt-1">
+              {filteredJobs.length} de {jobs.length} oportunidades activas
+            </p>
+          </div>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+              hasActiveFilters
+                ? 'bg-brand-rojo text-white'
+                : 'bg-white border border-brand-borde text-brand-negro hover:bg-brand-crema'
+            }`}
+          >
+            <Filter size={16} />
+            Filtros
+            {hasActiveFilters && (
+              <span className="bg-white text-brand-rojo text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                {[searchQuery, selectedCategory, minBudget, maxBudget, dateFilter !== 'all', sortBy !== 'recent'].filter(Boolean).length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Barra de búsqueda */}
+        <div className="relative">
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Buscar por título, descripción o categoría..."
+            className="tm-input pl-10 w-full"
+          />
+        </div>
+
+        {/* Panel de filtros avanzados */}
+        {showFilters && (
+          <div className="bg-white rounded-xl border border-brand-borde p-6 space-y-4">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-bold text-brand-negro">Filtros Avanzados</h3>
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="text-sm text-brand-rojo hover:text-brand-rojo-hover flex items-center gap-1"
+                >
+                  <X size={14} />
+                  Limpiar filtros
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Categoría */}
+              <div>
+                <label className="block text-xs font-semibold text-brand-gris uppercase mb-2">Categoría</label>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="tm-input w-full"
+                >
+                  <option value="">Todas las categorías</option>
+                  {categories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Presupuesto Mínimo */}
+              <div>
+                <label className="block text-xs font-semibold text-brand-gris uppercase mb-2">Presupuesto Mínimo</label>
+                <div className="relative">
+                  <DollarSign size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                  <input
+                    type="number"
+                    value={minBudget}
+                    onChange={(e) => setMinBudget(e.target.value)}
+                    placeholder="0"
+                    min="0"
+                    className="tm-input pl-10 w-full"
+                  />
+                </div>
+              </div>
+
+              {/* Presupuesto Máximo */}
+              <div>
+                <label className="block text-xs font-semibold text-brand-gris uppercase mb-2">Presupuesto Máximo</label>
+                <div className="relative">
+                  <DollarSign size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                  <input
+                    type="number"
+                    value={maxBudget}
+                    onChange={(e) => setMaxBudget(e.target.value)}
+                    placeholder="Sin límite"
+                    min="0"
+                    className="tm-input pl-10 w-full"
+                  />
+                </div>
+              </div>
+
+              {/* Fecha de Publicación */}
+              <div>
+                <label className="block text-xs font-semibold text-brand-gris uppercase mb-2">Publicado</label>
+                <select
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value as DateFilter)}
+                  className="tm-input w-full"
+                >
+                  <option value="all">Cualquier fecha</option>
+                  <option value="7days">Últimos 7 días</option>
+                  <option value="30days">Últimos 30 días</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Ordenar por */}
+            <div>
+              <label className="block text-xs font-semibold text-brand-gris uppercase mb-2">Ordenar por</label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setSortBy('recent')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    sortBy === 'recent'
+                      ? 'bg-brand-negro text-white'
+                      : 'bg-brand-crema text-brand-negro hover:bg-brand-crema/70'
+                  }`}
+                >
+                  Más Recientes
+                </button>
+                <button
+                  onClick={() => setSortBy('budget_high')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1 ${
+                    sortBy === 'budget_high'
+                      ? 'bg-brand-negro text-white'
+                      : 'bg-brand-crema text-brand-negro hover:bg-brand-crema/70'
+                  }`}
+                >
+                  <TrendingUp size={14} />
+                  Mayor Presupuesto
+                </button>
+                <button
+                  onClick={() => setSortBy('budget_low')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1 ${
+                    sortBy === 'budget_low'
+                      ? 'bg-brand-negro text-white'
+                      : 'bg-brand-crema text-brand-negro hover:bg-brand-crema/70'
+                  }`}
+                >
+                  <TrendingDown size={14} />
+                  Menor Presupuesto
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {jobs.length === 0 ? (
+      {/* Grid de trabajos */}
+      {filteredJobs.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-xl border border-brand-borde">
           <Briefcase className="mx-auto h-12 w-12 text-brand-gris opacity-30 mb-4" />
-          <p className="text-brand-gris">No hay trabajos disponibles en este momento.</p>
+          <p className="text-brand-gris">
+            {hasActiveFilters
+              ? 'No se encontraron trabajos con los filtros aplicados'
+              : 'No hay trabajos disponibles en este momento'}
+          </p>
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="tm-btn-rojo mt-4"
+            >
+              Limpiar filtros
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {jobs.map((job) => (
+          {filteredJobs.map((job) => (
             <div 
               key={job.id} 
               className="bg-white rounded-xl border border-brand-borde p-5 hover:shadow-lg transition-all hover:-translate-y-1 flex flex-col h-full relative group"
@@ -217,19 +466,19 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
                   Compartir
                 </button>
                 
-                <button 
-                  onClick={() => setSelectedJob(job)}
-                  className="flex-1 tm-btn-rojo text-xs py-2"
+                <Link 
+                  href={`/trabajo/${job.id}`}
+                  className="flex-1 tm-btn-rojo text-xs py-2 text-center"
                 >
                   Ver Detalles
-                </button>
+                </Link>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/*  MODAL DE DETALLES DEL TRABAJO */}
+      {/* Modal de Detalles del Trabajo */}
       {selectedJob && !showApplyModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full my-8">
@@ -293,7 +542,6 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
                     onClick={() => setShowApplyModal(true)}
                     className="flex-1 tm-btn-rojo flex items-center justify-center gap-2"
                   >
-                    <CheckCircle size={18} />
                     Postularme a este Trabajo
                   </button>
                 )}
@@ -303,7 +551,7 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
         </div>
       )}
 
-      {/* 🆕 MODAL DE POSTULACIÓN */}
+      {/* Modal de Postulación */}
       {selectedJob && showApplyModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full my-8">
@@ -383,10 +631,7 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
                       Enviando...
                     </>
                   ) : (
-                    <>
-                      <CheckCircle size={18} />
-                      Enviar Propuesta
-                    </>
+                    'Enviar Propuesta'
                   )}
                 </button>
               </div>

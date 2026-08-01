@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Briefcase, Users, DollarSign, Clock, Plus, ArrowLeft, Check, X, Eye, Trash2, Star, TrendingUp, PieChart as PieChartIcon, BarChart3, MessageCircle, AlertTriangle, RotateCcw, Search, Filter, Shield, ShieldAlert, ChevronLeft, ChevronRight, FolderOpen } from 'lucide-react';
+import { Briefcase, Users, DollarSign, Clock, Plus, ArrowLeft, Check, X, Eye, Trash2, Star, TrendingUp, PieChart as PieChartIcon, BarChart3, MessageCircle, AlertTriangle, RotateCcw, Search, Filter, Shield, ShieldAlert, ChevronLeft, ChevronRight, FolderOpen, CreditCard } from 'lucide-react';
 import { Logo, Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
 import NewJobForm from '@/app/admin/NewJobForm';
 import ReviewModal from '@/app/components/ReviewModal';
 import ChatModal from '@/app/components/ChatModal';
 import NotificationBell from '@/app/components/NotificationBell';
+import ThemeToggle from '@/app/components/ThemeToggle';
 import { createNotification } from '@/lib/notifications';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
@@ -354,6 +355,7 @@ export default function AdminPanel() {
 
   return (
     <div className="min-h-screen bg-brand-crema flex flex-col">
+      {/* ✅ HEADER CORREGIDO */}
       <header className="bg-brand-negro py-3.5 px-5 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-3 flex-wrap">
           <div className="flex items-center gap-4">
@@ -362,8 +364,8 @@ export default function AdminPanel() {
           </div>
           <div className="flex items-center gap-4">
             <NotificationBell userId={currentUserId} />
+            <ThemeToggle />
             
-            {/* 🆕 BOTÓN PARA GESTIONAR CATEGORÍAS */}
             <button 
               onClick={() => router.push('/admin/categories')} 
               className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
@@ -371,6 +373,15 @@ export default function AdminPanel() {
             >
               <FolderOpen size={18} /> 
               <span className="hidden sm:inline">Categorías</span>
+            </button>
+            
+            <button
+              onClick={() => router.push('/admin/payments')}
+              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
+              title="Gestión de Pagos"
+            >
+              <CreditCard size={18} />
+              <span className="hidden sm:inline">Pagos</span>
             </button>
             
             <button onClick={() => router.push('/')} className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors">
