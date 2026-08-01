@@ -36,7 +36,7 @@ export default function FreelancerRanking() {
         created_at
       `)
       .eq('role', 'freelancer')
-      .order('rating', { ascending: false, nulls: 'last' })
+      .order('rating', { ascending: false, nullsFirst: false })
       .limit(50);
 
     if (error) {
