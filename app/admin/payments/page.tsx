@@ -39,6 +39,7 @@ interface PaymentMethod {
   method_type: string;
   method_name: string;
   account_details: any;
+  is_default: boolean; // ✅ Agregada
 }
 
 export default function PaymentsManagement() {
