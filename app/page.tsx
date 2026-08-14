@@ -255,9 +255,11 @@ export default function Home() {
       )}
 
       {/* CONTENIDO PRINCIPAL: TABLERO DE TRABAJOS */}
-      {/* CONTENIDO PRINCIPAL: TABLERO DE TRABAJOS */}
       <main className="flex-grow max-w-7xl mx-auto w-full px-4 py-8">
-        <JobBoard />
+        <JobBoard 
+          userId={user?.id} 
+          userRole={profile?.role} 
+        />
       </main>
 
       {/* FOOTER */}
