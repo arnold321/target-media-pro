@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, use } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Download, Printer } from 'lucide-react';
@@ -31,14 +31,17 @@ interface ReceiptData {
   };
 }
 
-export default function ReceiptPage({ params }: { params: { id: string } }) {
+export default function ReceiptPage({ params }: { params: Promise<{ id: string }> }) {
   const [data, setData] = useState<ReceiptData | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  // ✅ Desenvolver el Promise de params
+  const { id } = use(params);
+
   useEffect(() => {
     loadReceipt();
-  }, [params.id]);
+  }, [id]);
 
   async function loadReceipt() {
     const { data: paymentData, error } = await supabase
@@ -49,7 +52,7 @@ export default function ReceiptPage({ params }: { params: { id: string } }) {
         profiles:freelancer_id (full_name, email),
         admin_profile:admin_id (full_name, email)
       `)
-      .eq('id', params.id)
+      .eq('id', id)
       .single();
 
     if (error || !paymentData) {

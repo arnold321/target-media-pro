@@ -10,10 +10,10 @@ interface Freelancer {
   id: string;
   full_name: string;
   email: string;
-  rating?: number | null;
-  total_reviews?: number;
-  completed_jobs?: number;
-  total_earned?: number;
+  rating: number;
+  total_reviews: number;
+  completed_jobs: number;
+  total_earned: number;
 }
 
 export default function FreelancerRanking() {
@@ -25,26 +25,25 @@ export default function FreelancerRanking() {
   }, []);
 
   async function loadRanking() {
-    // Obtener freelancers con sus estadísticas
-    const { data: profilesData, error } = await supabase
-      .from('profiles')
-      .select(`
-        id,
-        full_name,
-        email,
-        rating,
-        created_at
-      `)
-      .eq('role', 'freelancer')
-      .order('rating', { ascending: false, nullsFirst: false })
-      .limit(50);
+    try {
+      // 1. Obtener todos los freelancers (sin pedir rating de profiles)
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, created_at')
+        .eq('role', 'freelancer');
 
-    if (error) {
-      console.error('Error al cargar ranking:', error);
-    }
+      if (profilesError) {
+        console.error('❌ Error al cargar perfiles:', profilesError);
+        setLoading(false);
+        return;
+      }
 
-    // Obtener trabajos completados por cada freelancer
-    if (profilesData) {
+      if (!profilesData || profilesData.length === 0) {
+        setLoading(false);
+        return;
+      }
+
+      // 2. Calcular estadísticas reales desde la tabla jobs
       const freelancersWithStats = await Promise.all(
         profilesData.map(async (profile) => {
           // Contar trabajos completados
@@ -54,27 +53,47 @@ export default function FreelancerRanking() {
             .eq('assigned_freelancer_id', profile.id)
             .eq('status', 'completado');
 
-          // Calcular total ganado
+          // Obtener presupuesto y rating de trabajos completados
           const { data: jobsData } = await supabase
             .from('jobs')
-            .select('budget')
+            .select('budget, rating')
             .eq('assigned_freelancer_id', profile.id)
             .eq('status', 'completado');
 
           const totalEarned = jobsData?.reduce((sum, job) => sum + Number(job.budget || 0), 0) || 0;
+          
+          // Calcular rating promedio real
+          const ratings = jobsData?.map(j => j.rating).filter(r => r !== null && r !== undefined) || [];
+          const avgRating = ratings.length > 0 
+            ? ratings.reduce((sum, r) => sum + Number(r), 0) / ratings.length 
+            : 0;
 
           return {
-            ...profile,
+            id: profile.id,
+            full_name: profile.full_name || 'Freelancer',
+            email: profile.email,
+            rating: Number(avgRating.toFixed(1)),
+            total_reviews: ratings.length,
             completed_jobs: completedCount || 0,
             total_earned: totalEarned,
-            total_reviews: profile.rating ? Math.floor(profile.rating * 2) : 0, // Estimado
           };
         })
       );
 
-      setFreelancers(freelancersWithStats);
+      // 3. Ordenar: primero por rating (desc), luego por trabajos completados (desc)
+      const sortedFreelancers = freelancersWithStats.sort((a, b) => {
+        if (b.rating !== a.rating) {
+          return b.rating - a.rating;
+        }
+        return b.completed_jobs - a.completed_jobs;
+      });
+
+      setFreelancers(sortedFreelancers);
+    } catch (error) {
+      console.error('💥 Error al cargar ranking:', error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const topThree = freelancers.slice(0, 3);
@@ -93,7 +112,6 @@ export default function FreelancerRanking() {
 
   return (
     <div className="min-h-screen bg-brand-crema flex flex-col">
-      {/* Header */}
       <header className="bg-brand-negro py-3.5 px-5 sticky top-0 z-50">
         <div className="max-w-5xl mx-auto flex justify-between items-center gap-3 flex-wrap">
           <Link href="/">
@@ -108,9 +126,7 @@ export default function FreelancerRanking() {
         </div>
       </header>
 
-      {/* Contenido Principal */}
       <main className="flex-grow max-w-5xl mx-auto w-full px-4 py-12">
-        {/* Título */}
         <div className="text-center mb-12">
           <div className="flex items-center justify-center gap-3 mb-4">
             <Trophy size={40} className="text-brand-rojo" />
@@ -139,7 +155,6 @@ export default function FreelancerRanking() {
           </div>
         ) : (
           <>
-            {/* PODIO - Top 3 */}
             {topThree.length > 0 && (
               <div className="mb-12">
                 <h2 className="text-2xl font-bold text-brand-negro text-center mb-8 flex items-center justify-center gap-2">
@@ -159,17 +174,17 @@ export default function FreelancerRanking() {
                         </div>
                         <div className="mt-8">
                           <div className="bg-gray-500 rounded-full w-20 h-20 mx-auto mb-3 flex items-center justify-center text-3xl font-extrabold text-white">
-                            {topThree[1].full_name?.charAt(0).toUpperCase()}
+                            {topThree[1].full_name.charAt(0).toUpperCase()}
                           </div>
                           <h3 className="font-bold text-brand-negro text-lg mb-1 line-clamp-1">
-                            {topThree[1].full_name || 'Freelancer'}
+                            {topThree[1].full_name}
                           </h3>
                           <div className="flex items-center justify-center gap-1 text-yellow-600 mb-2">
                             <Star size={16} fill="currentColor" />
-                            <span className="font-bold">{topThree[1].rating?.toFixed(1) || '0.0'}</span>
+                            <span className="font-bold">{topThree[1].rating.toFixed(1)}</span>
                           </div>
                           <p className="text-xs text-brand-gris">
-                            {topThree[1].completed_jobs || 0} trabajos completados
+                            {topThree[1].completed_jobs} trabajos completados
                           </p>
                         </div>
                         <div className="mt-4 pt-4 border-t border-gray-400">
@@ -190,20 +205,17 @@ export default function FreelancerRanking() {
                         </div>
                         <div className="mt-10">
                           <div className="bg-yellow-600 rounded-full w-24 h-24 mx-auto mb-3 flex items-center justify-center text-4xl font-extrabold text-white border-4 border-yellow-400">
-                            {topThree[0].full_name?.charAt(0).toUpperCase()}
+                            {topThree[0].full_name.charAt(0).toUpperCase()}
                           </div>
                           <h3 className="font-bold text-brand-negro text-xl mb-1 line-clamp-1">
-                            {topThree[0].full_name || 'Freelancer'}
+                            {topThree[0].full_name}
                           </h3>
                           <div className="flex items-center justify-center gap-1 text-yellow-600 mb-2">
                             <Star size={20} fill="currentColor" />
-                            <span className="font-bold text-xl">{topThree[0].rating?.toFixed(1) || '0.0'}</span>
+                            <span className="font-bold text-xl">{topThree[0].rating.toFixed(1)}</span>
                           </div>
                           <p className="text-sm text-brand-gris font-semibold">
-                            {topThree[0].completed_jobs || 0} trabajos completados
-                          </p>
-                          <p className="text-xs text-brand-gris mt-1">
-                            ${topThree[0].total_earned?.toLocaleString() || 0} ganados
+                            {topThree[0].completed_jobs} trabajos completados
                           </p>
                         </div>
                         <div className="mt-4 pt-4 border-t border-yellow-400">
@@ -224,17 +236,17 @@ export default function FreelancerRanking() {
                         </div>
                         <div className="mt-8">
                           <div className="bg-amber-700 rounded-full w-20 h-20 mx-auto mb-3 flex items-center justify-center text-3xl font-extrabold text-white">
-                            {topThree[2].full_name?.charAt(0).toUpperCase()}
+                            {topThree[2].full_name.charAt(0).toUpperCase()}
                           </div>
                           <h3 className="font-bold text-brand-negro text-lg mb-1 line-clamp-1">
-                            {topThree[2].full_name || 'Freelancer'}
+                            {topThree[2].full_name}
                           </h3>
                           <div className="flex items-center justify-center gap-1 text-yellow-600 mb-2">
                             <Star size={16} fill="currentColor" />
-                            <span className="font-bold">{topThree[2].rating?.toFixed(1) || '0.0'}</span>
+                            <span className="font-bold">{topThree[2].rating.toFixed(1)}</span>
                           </div>
                           <p className="text-xs text-brand-gris">
-                            {topThree[2].completed_jobs || 0} trabajos completados
+                            {topThree[2].completed_jobs} trabajos completados
                           </p>
                         </div>
                         <div className="mt-4 pt-4 border-t border-amber-400">
@@ -247,7 +259,6 @@ export default function FreelancerRanking() {
               </div>
             )}
 
-            {/* Lista del resto */}
             {restOfFreelancers.length > 0 && (
               <div>
                 <h2 className="text-2xl font-bold text-brand-negro text-center mb-6 flex items-center justify-center gap-2">
@@ -263,16 +274,16 @@ export default function FreelancerRanking() {
                     >
                       <div className="flex items-center gap-4">
                         <div className="bg-brand-crema rounded-full w-14 h-14 flex items-center justify-center text-xl font-extrabold text-brand-negro flex-shrink-0">
-                          {freelancer.full_name?.charAt(0).toUpperCase()}
+                          {freelancer.full_name.charAt(0).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="font-bold text-brand-negro mb-1 line-clamp-1">
-                            {freelancer.full_name || 'Freelancer'}
+                            {freelancer.full_name}
                           </h3>
                           <div className="flex items-center gap-1 text-yellow-600">
                             <Star size={14} fill="currentColor" />
                             <span className="font-semibold text-sm">
-                              {freelancer.rating?.toFixed(1) || '0.0'}
+                              {freelancer.rating.toFixed(1)}
                             </span>
                           </div>
                         </div>
@@ -283,8 +294,8 @@ export default function FreelancerRanking() {
                         </div>
                       </div>
                       <div className="mt-3 pt-3 border-t border-brand-borde flex justify-between text-xs text-brand-gris">
-                        <span>{freelancer.completed_jobs || 0} trabajos</span>
-                        <span>${freelancer.total_earned?.toLocaleString() || 0}</span>
+                        <span>{freelancer.completed_jobs} trabajos</span>
+                        <span>{freelancer.completed_jobs} completados</span>
                       </div>
                     </div>
                   ))}
@@ -295,7 +306,6 @@ export default function FreelancerRanking() {
         )}
       </main>
 
-      {/* Footer */}
       <footer className="bg-brand-negro text-gray-400 text-center py-6 text-sm mt-12 border-t border-gray-800">
         © Target Media {new Date().getFullYear()} · Ranking de Freelancers
       </footer>

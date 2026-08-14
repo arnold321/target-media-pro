@@ -114,7 +114,7 @@ export default function AdminPanel() {
     if (activeTab === 'jobs' && !selectedJob && currentUserId) {
       loadData(currentUserId);
     }
-  }, [currentPage, activeTab, selectedJob]);
+  }, [currentPage, activeTab, selectedJob, searchQuery, statusFilter]);
 
   async function checkAdminAndLoadData() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -242,23 +242,56 @@ export default function AdminPanel() {
 
   async function handleApproveProposal(proposalId: string, jobId: string, freelancerId: string) {
     if (!confirm('¿Aprobar esta propuesta? El trabajo pasará a estado "En progreso".')) return;
+    
     try {
       const job = jobs.find(j => j.id === jobId);
-      await supabase.from('proposals').update({ status: 'aprobada' }).eq('id', proposalId);
-      await supabase.from('jobs').update({ status: 'en_progreso', assigned_freelancer_id: freelancerId }).eq('id', jobId);
+      
+      console.log('🔄 Aprobando propuesta:', proposalId);
+      
+      const { data: proposalData, error: proposalError } = await supabase
+        .from('proposals')
+        .update({ status: 'aprobada' })
+        .eq('id', proposalId)
+        .select();
+
+      if (proposalError) throw proposalError;
+
+      const { data: jobData, error: jobError } = await supabase
+        .from('jobs')
+        .update({ 
+          status: 'en_progreso', 
+          assigned_freelancer_id: freelancerId 
+        })
+        .eq('id', jobId)
+        .select();
+
+      if (jobError) throw jobError;
+
       toast.success('Propuesta aprobada exitosamente');
       
-      await createNotification(
-        freelancerId,
-        'proposal_approved',
-        '¡Propuesta aprobada!',
-        `Tu propuesta para "${job?.title || 'el trabajo'}" ha sido aprobada.`,
-        jobId,
-        'job'
-      );
+      setProposals(prev => prev.map(p => 
+        p.id === proposalId ? { ...p, status: 'aprobada' } : p
+      ));
+      
+      setJobs(prev => prev.map(j => 
+        j.id === jobId ? { ...j, status: 'en_progreso', assigned_freelancer_id: freelancerId } : j
+      ));
       
       await loadData(currentUserId);
+      
+      if (freelancerId && job) {
+        await createNotification(
+          freelancerId,
+          'proposal_approved',
+          '¡Propuesta aprobada!',
+          `Tu propuesta para "${job.title}" ha sido aprobada.`,
+          jobId,
+          'job'
+        );
+      }
+      
     } catch (error) {
+      console.error('💥 Error en handleApproveProposal:', error);
       toast.error('Error al aprobar la propuesta');
     }
   }
@@ -355,7 +388,7 @@ export default function AdminPanel() {
 
   return (
     <div className="min-h-screen bg-brand-crema flex flex-col">
-      {/* ✅ HEADER CORREGIDO */}
+      {/* ✅ HEADER CON BOTÓN DE NOTICIAS AGREGADO */}
       <header className="bg-brand-negro py-3.5 px-5 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-3 flex-wrap">
           <div className="flex items-center gap-4">
@@ -365,6 +398,18 @@ export default function AdminPanel() {
           <div className="flex items-center gap-4">
             <NotificationBell userId={currentUserId} />
             <ThemeToggle />
+            
+            {/* ✅ NUEVO: Botón de Noticias */}
+            <button 
+              onClick={() => router.push('/admin/news')} 
+              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
+              title="Gestionar Noticias"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1m2 13a2 2 0 0 1-2-2V7m2 13a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"/>
+              </svg>
+              <span className="hidden sm:inline">Noticias</span>
+            </button>
             
             <button 
               onClick={() => router.push('/admin/categories')} 
@@ -506,7 +551,14 @@ export default function AdminPanel() {
                         <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
                         <input type="text" placeholder="Buscar trabajo..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="tm-input pl-10" />
                       </div>
-                      <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="tm-input py-2">
+                      <select 
+                        value={statusFilter} 
+                        onChange={(e) => {
+                          setStatusFilter(e.target.value);
+                          setCurrentPage(1);
+                        }} 
+                        className="tm-input py-2"
+                      >
                         <option value="todos">Todos los estados</option>
                         <option value="abierto">Abierto</option>
                         <option value="en_progreso">En Progreso</option>
@@ -631,24 +683,45 @@ export default function AdminPanel() {
             {/* PESTAÑA PROPUESTAS */}
             {activeTab === 'proposals' && (
               <div className="space-y-4">
-                {proposals.map(proposal => {
-                  const isResolved = proposal.status === 'aprobada' || proposal.status === 'rechazada' || proposal.status === 'anulada';
-                  return (
-                    <div key={proposal.id} className={`border border-brand-borde rounded-lg p-5 hover:shadow-md transition-shadow ${isResolved ? 'opacity-75' : ''}`}>
+                {(() => {
+                  const pendingProposals = proposals.filter(p => p.status?.toLowerCase().trim() === 'pendiente');
+                  
+                  if (pendingProposals.length === 0) {
+                    return (
+                      <div className="text-center py-12 bg-brand-crema/30 rounded-xl border border-brand-borde">
+                        <p className="text-brand-gris">No hay propuestas pendientes</p>
+                      </div>
+                    );
+                  }
+
+                  return pendingProposals.map(proposal => (
+                    <div key={proposal.id} className="border border-brand-borde rounded-lg p-5 hover:shadow-md transition-shadow">
                       <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
-                        <div><h4 className="font-bold text-brand-negro">{proposal.profiles.full_name}</h4><p className="text-xs text-brand-vino font-semibold mt-1">Trabajo: {proposal.jobs.title}</p></div>
+                        <div>
+                          <h4 className="font-bold text-brand-negro">{proposal.profiles.full_name}</h4>
+                          <p className="text-xs text-brand-vino font-semibold mt-1">Trabajo: {proposal.jobs.title}</p>
+                          <p className="text-xs text-brand-gris mt-1">Estado en BD: <strong className="text-brand-rojo">{proposal.status}</strong></p>
+                        </div>
                         <Badge estado={proposal.status} />
                       </div>
                       <p className="text-sm text-brand-texto mb-3">{proposal.cover_letter}</p>
-                      {proposal.status === 'pendiente' && (
-                        <div className="flex gap-2 mt-4">
-                          <button onClick={() => handleApproveProposal(proposal.id, proposal.job_id, proposal.freelancer_id)} className="tm-btn-verde flex items-center gap-1 text-xs"><Check size={14} /> Aprobar</button>
-                          <button onClick={() => handleRejectProposal(proposal.id)} className="tm-btn-vino flex items-center gap-1 text-xs"><X size={14} /> Rechazar</button>
-                        </div>
-                      )}
+                      <div className="flex gap-2 mt-4">
+                        <button 
+                          onClick={() => handleApproveProposal(proposal.id, proposal.job_id, proposal.freelancer_id)} 
+                          className="tm-btn-verde flex items-center gap-1 text-xs"
+                        >
+                          <Check size={14} /> Aprobar
+                        </button>
+                        <button 
+                          onClick={() => handleRejectProposal(proposal.id)} 
+                          className="tm-btn-vino flex items-center gap-1 text-xs"
+                        >
+                          <X size={14} /> Rechazar
+                        </button>
+                      </div>
                     </div>
-                  );
-                })}
+                  ));
+                })()}
               </div>
             )}
 

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link'; // ✅ Import agregado
+import Link from 'next/link';
 import { Logo } from '@/app/components/ui';
 import { Lock, Star, ArrowLeft } from 'lucide-react';
 
@@ -122,7 +122,6 @@ export default function PortfolioPage() {
 
   return (
     <div className="min-h-screen bg-brand-crema flex flex-col">
-      {/* ✅ HEADER CORREGIDO */}
       <header className="bg-brand-negro py-3.5 px-5 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-3 flex-wrap">
           <div className="flex items-center gap-4">
@@ -134,7 +133,7 @@ export default function PortfolioPage() {
               href="/ranking"
               className="text-sm text-gray-300 hover:text-white transition-colors"
             >
-              🏆 Ranking
+               Ranking
             </Link>
             <button
               onClick={() => router.push('/')}
