@@ -5,7 +5,6 @@ import { supabase } from '@/lib/supabase';
 import { Heart, DollarSign, Clock, Briefcase, Share2, Search, Filter, X, TrendingUp, TrendingDown } from 'lucide-react';
 import { Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
-import Link from 'next/link';
 
 interface Job {
   id: string;
@@ -97,7 +96,7 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
 
   async function handleShare(job: Job) {
     const shareUrl = `${window.location.origin}/trabajo/${job.id}`;
-    const shareText = `¡Hola! Vi esta oferta de trabajo y pensé en ti:\n\n🚀 *${job.title}*\n Presupuesto: $${Number(job.budget).toLocaleString()}\n📂 Categoría: ${job.category}\n\nMira los detalles y postúlate aquí:`;
+    const shareText = `¡Hola! Vi esta oferta de trabajo y pensé en ti:\n\n🚀 *${job.title}*\n Presupuesto: $${Number(job.budget).toLocaleString()}\n Categoría: ${job.category}\n\nMira los detalles y postúlate aquí:`;
 
     try {
       if (navigator.share) {
@@ -123,6 +122,13 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
   async function handleApply(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedJob) return;
+
+    // ✅ DEBUG: Verificar que los datos lleguen correctamente
+    console.log('📤 Datos de postulación:', { 
+      job_id: selectedJob.id, 
+      freelancer_id: userId, 
+      userRole: userRole 
+    });
 
     setApplying(true);
     try {
@@ -466,12 +472,13 @@ export default function JobBoard({ userId, userRole }: JobBoardProps) {
                   Compartir
                 </button>
                 
-                <Link 
-                  href={`/trabajo/${job.id}`}
+                {/* ✅ CAMBIO: Botón en lugar de Link para abrir el modal */}
+                <button 
+                  onClick={() => setSelectedJob(job)}
                   className="flex-1 tm-btn-rojo text-xs py-2 text-center"
                 >
                   Ver Detalles
-                </Link>
+                </button>
               </div>
             </div>
           ))}
