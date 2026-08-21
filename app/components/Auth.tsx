@@ -102,37 +102,63 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
     setCurrentNewsIndex((prev) => (prev - 1 + news.length) % news.length);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccess('');
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setLoading(true);
+  setError('');
+  setSuccess('');
 
-    try {
-      if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) throw error;
-        onAuthSuccess();
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: { full_name: fullName },
-          },
-        });
-        if (error) throw error;
-        setSuccess('¡Cuenta creada! Revisa tu correo para confirmar el registro.');
+  try {
+    if (isLogin) {
+      // 1. Intentar login
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      
+      if (authError) throw authError;
+
+      // 2. Verificar si el usuario está aprobado
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('is_approved, rejection_reason')
+        .eq('id', authData.user?.id)
+        .single();
+
+      if (profileError) throw profileError;
+
+      // 3. Si no está aprobado, cerrar sesión y mostrar mensaje
+      if (!profile.is_approved) {
+        await supabase.auth.signOut();
+        
+        if (profile.rejection_reason) {
+          setError(`Cuenta rechazada: ${profile.rejection_reason}`);
+        } else {
+          setError('Tu cuenta está pendiente de aprobación. Un administrador debe habilitarla antes de que puedas acceder.');
+        }
+        return;
       }
-    } catch (err: any) {
-      setError(err.message || 'Ocurrió un error. Intenta de nuevo.');
-    } finally {
-      setLoading(false);
+
+      // 4. Si está aprobado, continuar
+      onAuthSuccess();
+    } else {
+      // Registro
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: fullName },
+        },
+      });
+      if (error) throw error;
+      setSuccess('¡Cuenta creada! Tu registro está pendiente de aprobación por un administrador. Recibirás un correo cuando sea habilitada.');
     }
-  };
+  } catch (err: any) {
+    setError(err.message || 'Ocurrió un error. Intenta de nuevo.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen bg-brand-crema flex flex-col relative overflow-hidden">

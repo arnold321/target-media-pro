@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Briefcase, Upload, CheckCircle, Clock, ArrowLeft, DollarSign, Award, FileText, TrendingUp, XCircle, User, Mail, Phone, Save, Edit3, MessageCircle, Search, Filter, BarChart3, PieChart as PieChartIcon, CreditCard } from 'lucide-react';
+import { Briefcase, Upload, CheckCircle, Clock, ArrowLeft, DollarSign, Award, FileText, TrendingUp, XCircle, User, Mail, Phone, Save, Edit3, MessageCircle, Search, Filter, BarChart3, PieChart as PieChartIcon, CreditCard, Star, MapPin, Calendar, Globe, Shield } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Logo, Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
@@ -46,6 +46,11 @@ interface Profile {
   whatsapp_number: string;
   role: string;
   created_at: string;
+  address?: string;
+  date_of_birth?: string;
+  nationality?: string;
+  id_number?: string;
+  rating?: number;
 }
 
 const COLORS = ['#D9374A', '#6E1423', '#F4E4D6', '#1F2937', '#9CA3AF'];
@@ -55,6 +60,24 @@ const STATUS_COLORS = {
   rechazada: '#EF4444',
   anulada: '#F97316',
 };
+
+const NATIONALITIES = [
+  'Venezolana',
+  'Colombiana',
+  'Mexicana',
+  'Argentina',
+  'Española',
+  'Chilena',
+  'Peruana',
+  'Ecuatoriana',
+  'Boliviana',
+  'Uruguaya',
+  'Paraguaya',
+  'Brasileña',
+  'Estadounidense',
+  'Canadiense',
+  'Otra',
+];
 
 export default function FreelancerDashboard() {
   const [jobs, setJobs] = useState<AssignedJob[]>([]);
@@ -77,6 +100,10 @@ export default function FreelancerDashboard() {
   const [profileForm, setProfileForm] = useState({
     full_name: '',
     whatsapp_number: '',
+    address: '',
+    date_of_birth: '',
+    nationality: '',
+    id_number: '',
   });
   const [savingProfile, setSavingProfile] = useState(false);
   
@@ -86,6 +113,10 @@ export default function FreelancerDashboard() {
   
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
+  
+  // Nuevos estados para ranking y reseñas
+  const [rankingPosition, setRankingPosition] = useState<number | null>(null);
+  const [totalReviews, setTotalReviews] = useState(0);
   
   const router = useRouter();
   const toast = useToast();
@@ -107,6 +138,13 @@ export default function FreelancerDashboard() {
     };
   }, [currentUserId]);
 
+  useEffect(() => {
+// ✅ AHORA
+if (profile && currentUserId) {
+      loadFreelancerStats();
+    }
+  }, [profile, currentUserId]);
+
   async function fetchProfile() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -126,7 +164,37 @@ export default function FreelancerDashboard() {
       setProfileForm({
         full_name: data.full_name || '',
         whatsapp_number: data.whatsapp_number || '',
+        address: data.address || '',
+        date_of_birth: data.date_of_birth || '',
+        nationality: data.nationality || '',
+        id_number: data.id_number || '',
       });
+    }
+  }
+
+  async function loadFreelancerStats() {
+    if (!currentUserId) return;
+
+    // 1. Cargar trabajos completados y contar reseñas
+    const { data: jobsData } = await supabase
+      .from('jobs')
+      .select('id, rating')
+      .eq('assigned_freelancer_id', currentUserId)
+      .eq('status', 'completado');
+
+    const reviewsCount = jobsData?.filter(j => j.rating !== null && j.rating !== undefined).length || 0;
+    setTotalReviews(reviewsCount);
+
+    // 2. Calcular posición en ranking
+    const { data: allFreelancers } = await supabase
+      .from('profiles')
+      .select('id, rating')
+      .eq('role', 'freelancer')
+      .order('rating', { ascending: false, nullsFirst: false });
+
+    if (allFreelancers) {
+      const position = allFreelancers.findIndex(f => f.id === currentUserId) + 1;
+      setRankingPosition(position > 0 ? position : null);
     }
   }
 
@@ -316,6 +384,10 @@ export default function FreelancerDashboard() {
         .update({
           full_name: profileForm.full_name.trim(),
           whatsapp_number: profileForm.whatsapp_number.trim(),
+          address: profileForm.address.trim(),
+          date_of_birth: profileForm.date_of_birth || null,
+          nationality: profileForm.nationality.trim(),
+          id_number: profileForm.id_number.trim(),
         })
         .eq('id', user.id);
 
@@ -370,6 +442,21 @@ export default function FreelancerDashboard() {
     return acc;
   }, {} as Record<string, number>);
   const chartEarningsByCategory = Object.entries(earningsByCategoryMap).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+
+  // Función para obtener el color del badge de ranking
+  const getRankingBadgeColor = () => {
+    if (!rankingPosition || rankingPosition > 3) return 'bg-gray-100 text-gray-700';
+    if (rankingPosition === 1) return 'bg-yellow-400 text-yellow-900';
+    if (rankingPosition === 2) return 'bg-gray-400 text-gray-900';
+    return 'bg-amber-600 text-white';
+  };
+
+  const getRankingEmoji = () => {
+    if (!rankingPosition || rankingPosition > 3) return '🏆';
+    if (rankingPosition === 1) return '🥇';
+    if (rankingPosition === 2) return '🥈';
+    return '🥉';
+  };
 
   if (loading) {
     return (
@@ -704,21 +791,64 @@ export default function FreelancerDashboard() {
 
             {activeTab === 'profile' && profile && (
               <>
-                <div className="bg-gradient-to-br from-brand-negro to-gray-800 rounded-xl p-6 mb-6 text-white">
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="bg-brand-rojo rounded-full w-16 h-16 flex items-center justify-center text-2xl font-extrabold">
-                      {profile.full_name ? profile.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'U'}
+                {/* Header del Perfil Mejorado */}
+                <div className="bg-gradient-to-br from-brand-negro to-gray-800 rounded-xl p-8 mb-6 text-white">
+                  <div className="flex items-center gap-6 flex-wrap">
+                    {/* Avatar con Badge de Ranking */}
+                    <div className="relative">
+                      <div className="bg-brand-rojo rounded-full w-24 h-24 flex items-center justify-center text-4xl font-extrabold">
+                        {profile.full_name ? profile.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'U'}
+                      </div>
+                      
+                      {/* Badge de Top Ranking */}
+                      {rankingPosition && rankingPosition <= 3 && (
+                        <div className={`absolute -top-2 -right-2 rounded-full p-3 shadow-lg ${getRankingBadgeColor()}`}>
+                          <span className="text-2xl">{getRankingEmoji()}</span>
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <h2 className="text-2xl font-extrabold">{profile.full_name || 'Sin nombre'}</h2>
-                      <p className="text-gray-400 text-sm flex items-center gap-1"><Mail size={14} />{profile.email}</p>
+
+                    {/* Información */}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 flex-wrap mb-2">
+                        <h2 className="text-3xl font-extrabold">
+                          {profile.full_name || 'Sin nombre'}
+                        </h2>
+                        {rankingPosition && rankingPosition <= 3 && (
+                          <span className={`text-sm font-bold px-3 py-1 rounded-full ${getRankingBadgeColor()}`}>
+                            Top #{rankingPosition} {getRankingEmoji()}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-gray-400 mb-3 flex items-center gap-1"><Mail size={14} />{profile.email}</p>
+                      
+                      {/* Estadísticas */}
+                      <div className="flex gap-6 text-sm flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <Star size={16} className="text-yellow-400" />
+                          <span className="font-semibold">
+                            {profile?.rating?.toFixed(1) || '0.0'}
+                          </span>
+                          <span className="text-gray-400">
+                            ({totalReviews} reseñas)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Briefcase size={16} className="text-brand-rojo" />
+                          <span className="font-semibold">
+                            {stats.completed}
+                          </span>
+                          <span className="text-gray-400">trabajos completados</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <DollarSign size={16} className="text-green-400" />
+                          <span className="font-semibold text-green-400">
+                            ${stats.totalEarned.toLocaleString()}
+                          </span>
+                          <span className="text-gray-400">ganados</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-700">
-                    <div><p className="text-xs text-gray-400 uppercase font-semibold">Propuestas</p><p className="text-2xl font-extrabold">{proposals.length}</p></div>
-                    <div><p className="text-xs text-gray-400 uppercase font-semibold">Aprobadas</p><p className="text-2xl font-extrabold text-green-400">{stats.approvedProposals}</p></div>
-                    <div><p className="text-xs text-gray-400 uppercase font-semibold">Completados</p><p className="text-2xl font-extrabold text-green-400">{stats.completed}</p></div>
-                    <div><p className="text-xs text-gray-400 uppercase font-semibold">Ingresos</p><p className="text-2xl font-extrabold text-brand-rojo">${stats.totalEarned.toLocaleString()}</p></div>
                   </div>
                 </div>
 
@@ -726,7 +856,7 @@ export default function FreelancerDashboard() {
                   <div className="flex justify-between items-center mb-6">
                     <div>
                       <h3 className="text-xl font-bold text-brand-negro">Información Personal</h3>
-                      <p className="text-sm text-brand-gris mt-1">Actualiza tus datos de contacto</p>
+                      <p className="text-sm text-brand-gris mt-1">Actualiza tus datos de contacto y perfil</p>
                     </div>
                     {!editingProfile && (
                       <button onClick={() => setEditingProfile(true)} className="tm-btn-outline flex items-center gap-2">
@@ -740,6 +870,15 @@ export default function FreelancerDashboard() {
                       <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Nombre completo</label><p className="text-brand-negro font-medium mt-1">{profile.full_name || 'No especificado'}</p></div>
                       <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Correo electrónico</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><Mail size={14} className="text-brand-gris" />{profile.email}</p></div>
                       <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">WhatsApp</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><Phone size={14} className="text-brand-gris" />{profile.whatsapp_number || 'No especificado'}</p></div>
+                      
+                      {/* Nuevos campos */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-brand-borde">
+                        <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Dirección</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><MapPin size={14} className="text-brand-gris" />{profile.address || 'No especificada'}</p></div>
+                        <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Nacionalidad</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><Globe size={14} className="text-brand-gris" />{profile.nationality || 'No especificada'}</p></div>
+                        <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Cédula / ID</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><Shield size={14} className="text-brand-gris" />{profile.id_number || 'No especificada'}</p></div>
+                        <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Fecha de Nacimiento</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><Calendar size={14} className="text-brand-gris" />{profile.date_of_birth ? new Date(profile.date_of_birth).toLocaleDateString('es-ES') : 'No especificada'}</p></div>
+                      </div>
+                      
                       <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Miembro desde</label><p className="text-brand-negro font-medium mt-1">{new Date(profile.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}</p></div>
                     </div>
                   ) : (
@@ -767,8 +906,46 @@ export default function FreelancerDashboard() {
                         </div>
                         <p className="text-xs text-brand-gris mt-1">Opcional · Para contacto directo con clientes</p>
                       </div>
+                      
+                      {/* Nuevos campos en el formulario */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-brand-borde">
+                        <div>
+                          <label className="block text-sm font-semibold text-brand-negro mb-2">Dirección</label>
+                          <div className="relative">
+                            <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                            <input type="text" value={profileForm.address} onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })} className="tm-input pl-10" placeholder="Tu dirección completa" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-brand-negro mb-2">Nacionalidad</label>
+                          <div className="relative">
+                            <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                            <select value={profileForm.nationality} onChange={(e) => setProfileForm({ ...profileForm, nationality: e.target.value })} className="tm-input pl-10">
+                              <option value="">Selecciona tu nacionalidad</option>
+                              {NATIONALITIES.map(nat => (
+                                <option key={nat} value={nat}>{nat}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-brand-negro mb-2">Cédula de Identidad / ID</label>
+                          <div className="relative">
+                            <Shield size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                            <input type="text" value={profileForm.id_number} onChange={(e) => setProfileForm({ ...profileForm, id_number: e.target.value })} className="tm-input pl-10" placeholder="Ej: V-12.345.678" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-brand-negro mb-2">Fecha de Nacimiento</label>
+                          <div className="relative">
+                            <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                            <input type="date" value={profileForm.date_of_birth} onChange={(e) => setProfileForm({ ...profileForm, date_of_birth: e.target.value })} className="tm-input pl-10" />
+                          </div>
+                        </div>
+                      </div>
+                      
                       <div className="flex gap-3 pt-4 border-t border-brand-borde">
-                        <button type="button" onClick={() => { setEditingProfile(false); setProfileForm({ full_name: profile.full_name || '', whatsapp_number: profile.whatsapp_number || '' }); }} className="flex-1 tm-btn-outline" disabled={savingProfile}>Cancelar</button>
+                        <button type="button" onClick={() => { setEditingProfile(false); setProfileForm({ full_name: profile.full_name || '', whatsapp_number: profile.whatsapp_number || '', address: profile.address || '', date_of_birth: profile.date_of_birth || '', nationality: profile.nationality || '', id_number: profile.id_number || '' }); }} className="flex-1 tm-btn-outline" disabled={savingProfile}>Cancelar</button>
                         <button type="submit" disabled={savingProfile} className="flex-1 tm-btn-rojo flex items-center justify-center gap-2">
                           {savingProfile ? (<><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>Guardando...</>) : (<><Save size={16} />Guardar Cambios</>)}
                         </button>

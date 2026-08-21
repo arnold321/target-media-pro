@@ -58,12 +58,18 @@ export default function Home() {
   }
 
   async function fetchProfile(userId: string) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
-    setProfile(data);
+    
+    if (error) {
+      console.error('❌ Error al cargar perfil:', error);
+    } else {
+      console.log('✅ Perfil cargado exitosamente:', data);
+      setProfile(data);
+    }
   }
 
   async function loadNews() {
@@ -106,10 +112,13 @@ export default function Home() {
     );
   }
 
-  // Si no hay usuario, mostrar pantalla de Auth (que ya incluye el diseño de noticias)
+  // Si no hay usuario, mostrar pantalla de Auth
   if (!user) {
     return <Auth onAuthSuccess={() => checkUser()} />;
   }
+
+  // 🔍 DEBUG: Esto nos ayudará a ver qué está pasando en la consola del navegador
+  console.log('🔍 Estado actual -> User Email:', user?.email, '| Profile Role:', profile?.role);
 
   return (
     <div className="min-h-screen bg-brand-crema flex flex-col">
@@ -128,22 +137,34 @@ export default function Home() {
               🏆 Ranking
             </Link>
             
-            {profile?.role === 'admin' && (
-              <button 
-                onClick={() => router.push('/admin')} 
-                className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
-              >
-                <LayoutDashboard size={16} /> Panel Admin
-              </button>
-            )}
-            
-            {profile?.role === 'freelancer' && (
-              <button 
-                onClick={() => router.push('/freelancer')} 
-                className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
-              >
-                <LayoutDashboard size={16} /> Mi Panel
-              </button>
+            {/* Si el perfil aún no carga, mostramos un indicador */}
+            {!profile ? (
+              <span className="text-xs text-gray-500">Cargando perfil...</span>
+            ) : (
+              <>
+                {profile?.role === 'admin' && (
+                  <button 
+                    onClick={() => router.push('/admin')} 
+                    className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors bg-white/10 px-3 py-1.5 rounded-lg"
+                  >
+                    <LayoutDashboard size={16} /> Panel Admin
+                  </button>
+                )}
+                
+                {profile?.role === 'freelancer' && (
+                  <button 
+                    onClick={() => router.push('/freelancer')} 
+                    className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors bg-white/10 px-3 py-1.5 rounded-lg"
+                  >
+                    <LayoutDashboard size={16} /> Mi Panel
+                  </button>
+                )}
+
+                {/* Fallback por si el rol es algo inesperado */}
+                {profile?.role !== 'admin' && profile?.role !== 'freelancer' && (
+                  <span className="text-xs text-yellow-400">Rol desconocido: {profile?.role}</span>
+                )}
+              </>
             )}
 
             <button 
@@ -168,16 +189,24 @@ export default function Home() {
           <div className="md:hidden bg-brand-negro border-t border-gray-800 py-4 px-5 space-y-4">
             <ThemeToggle />
             <Link href="/ranking" className="block text-sm text-gray-300 hover:text-white">🏆 Ranking</Link>
-            {profile?.role === 'admin' && (
-              <button onClick={() => router.push('/admin')} className="block w-full text-left text-sm text-gray-300 hover:text-white">
-                Panel Admin
-              </button>
+            
+            {!profile ? (
+              <span className="text-xs text-gray-500 block">Cargando perfil...</span>
+            ) : (
+              <>
+                {profile?.role === 'admin' && (
+                  <button onClick={() => router.push('/admin')} className="block w-full text-left text-sm text-gray-300 hover:text-white font-semibold">
+                    ⚙️ Panel Admin
+                  </button>
+                )}
+                {profile?.role === 'freelancer' && (
+                  <button onClick={() => router.push('/freelancer')} className="block w-full text-left text-sm text-gray-300 hover:text-white font-semibold">
+                    👤 Mi Panel
+                  </button>
+                )}
+              </>
             )}
-            {profile?.role === 'freelancer' && (
-              <button onClick={() => router.push('/freelancer')} className="block w-full text-left text-sm text-gray-300 hover:text-white">
-                Mi Panel
-              </button>
-            )}
+            
             <button onClick={handleLogout} className="block w-full text-left text-sm text-brand-rojo font-medium">
               Cerrar Sesión
             </button>
@@ -196,7 +225,6 @@ export default function Home() {
             
             <div className="relative bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6 md:p-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                {/* Imagen de la noticia */}
                 <div className="rounded-xl overflow-hidden h-48 md:h-64 shadow-lg">
                   <img
                     src={news[currentNewsIndex]?.image_url || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=800'}
@@ -205,7 +233,6 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Contenido de la noticia */}
                 <div className="flex flex-col justify-center">
                   <h3 className="text-2xl md:text-3xl font-extrabold mb-3 leading-tight">
                     {news[currentNewsIndex]?.title}
@@ -214,14 +241,9 @@ export default function Home() {
                     {news[currentNewsIndex]?.description}
                   </p>
 
-                  {/* Navegación */}
                   {news.length > 1 && (
                     <div className="flex items-center gap-4">
-                      <button
-                        onClick={prevNews}
-                        className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
-                        aria-label="Noticia anterior"
-                      >
+                      <button onClick={prevNews} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors" aria-label="Noticia anterior">
                         <ChevronLeft size={20} />
                       </button>
                       
@@ -238,11 +260,7 @@ export default function Home() {
                         ))}
                       </div>
 
-                      <button
-                        onClick={nextNews}
-                        className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
-                        aria-label="Siguiente noticia"
-                      >
+                      <button onClick={nextNews} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors" aria-label="Siguiente noticia">
                         <ChevronRight size={20} />
                       </button>
                     </div>

@@ -24,77 +24,91 @@ export default function FreelancerRanking() {
     loadRanking();
   }, []);
 
-  async function loadRanking() {
-    try {
-      // 1. Obtener todos los freelancers (sin pedir rating de profiles)
-      const { data: profilesData, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, created_at')
-        .eq('role', 'freelancer');
+async function loadRanking() {
+  try {
+    console.log('🔍 Iniciando carga de ranking...');
+    
+    // 1. Obtener freelancers APROBADOS explícitamente
+    const { data: profilesData, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, created_at')
+      .eq('role', 'freelancer')
+      .eq('is_approved', true);
 
-      if (profilesError) {
-        console.error('❌ Error al cargar perfiles:', profilesError);
-        setLoading(false);
-        return;
-      }
+    console.log('📊 Resultado de la consulta:', {
+      data: profilesData,
+      error: profilesError,
+      dataLength: profilesData?.length,
+      errorKeys: profilesError ? Object.keys(profilesError) : null
+    });
 
-      if (!profilesData || profilesData.length === 0) {
-        setLoading(false);
-        return;
-      }
-
-      // 2. Calcular estadísticas reales desde la tabla jobs
-      const freelancersWithStats = await Promise.all(
-        profilesData.map(async (profile) => {
-          // Contar trabajos completados
-          const { count: completedCount } = await supabase
-            .from('jobs')
-            .select('*', { count: 'exact', head: true })
-            .eq('assigned_freelancer_id', profile.id)
-            .eq('status', 'completado');
-
-          // Obtener presupuesto y rating de trabajos completados
-          const { data: jobsData } = await supabase
-            .from('jobs')
-            .select('budget, rating')
-            .eq('assigned_freelancer_id', profile.id)
-            .eq('status', 'completado');
-
-          const totalEarned = jobsData?.reduce((sum, job) => sum + Number(job.budget || 0), 0) || 0;
-          
-          // Calcular rating promedio real
-          const ratings = jobsData?.map(j => j.rating).filter(r => r !== null && r !== undefined) || [];
-          const avgRating = ratings.length > 0 
-            ? ratings.reduce((sum, r) => sum + Number(r), 0) / ratings.length 
-            : 0;
-
-          return {
-            id: profile.id,
-            full_name: profile.full_name || 'Freelancer',
-            email: profile.email,
-            rating: Number(avgRating.toFixed(1)),
-            total_reviews: ratings.length,
-            completed_jobs: completedCount || 0,
-            total_earned: totalEarned,
-          };
-        })
-      );
-
-      // 3. Ordenar: primero por rating (desc), luego por trabajos completados (desc)
-      const sortedFreelancers = freelancersWithStats.sort((a, b) => {
-        if (b.rating !== a.rating) {
-          return b.rating - a.rating;
-        }
-        return b.completed_jobs - a.completed_jobs;
-      });
-
-      setFreelancers(sortedFreelancers);
-    } catch (error) {
-      console.error('💥 Error al cargar ranking:', error);
-    } finally {
+    if (profilesError) {
+      console.error('❌ Error detallado:', JSON.stringify(profilesError, null, 2));
       setLoading(false);
+      return;
     }
+
+    if (!profilesData || profilesData.length === 0) {
+      console.warn('⚠️ No se encontraron perfiles de freelancers aprobados');
+      setLoading(false);
+      return;
+    }
+
+    console.log(`✅ Encontrados ${profilesData.length} perfiles, calculando estadísticas...`);
+
+    // 2. Calcular estadísticas reales desde la tabla jobs
+    const freelancersWithStats = await Promise.all(
+      profilesData.map(async (profile) => {
+        // Contar trabajos completados
+        const { count: completedCount } = await supabase
+          .from('jobs')
+          .select('*', { count: 'exact', head: true })
+          .eq('assigned_freelancer_id', profile.id)
+          .eq('status', 'completado');
+
+        // Obtener presupuesto y rating de trabajos completados
+        const { data: jobsData } = await supabase
+          .from('jobs')
+          .select('budget, rating')
+          .eq('assigned_freelancer_id', profile.id)
+          .eq('status', 'completado');
+
+        const totalEarned = jobsData?.reduce((sum, job) => sum + Number(job.budget || 0), 0) || 0;
+        
+        // Calcular rating promedio real
+        const ratings = jobsData?.map(j => j.rating).filter(r => r !== null && r !== undefined) || [];
+        const avgRating = ratings.length > 0 
+          ? ratings.reduce((sum, r) => sum + Number(r), 0) / ratings.length 
+          : 0;
+
+        return {
+          id: profile.id,
+          full_name: profile.full_name || 'Freelancer',
+          email: profile.email,
+          rating: Number(avgRating.toFixed(1)),
+          total_reviews: ratings.length,
+          completed_jobs: completedCount || 0,
+          total_earned: totalEarned,
+        };
+      })
+    );
+
+    // 3. Ordenar
+    const sortedFreelancers = freelancersWithStats.sort((a, b) => {
+      if (b.rating !== a.rating) {
+        return b.rating - a.rating;
+      }
+      return b.completed_jobs - a.completed_jobs;
+    });
+
+    console.log('🏆 Ranking final:', sortedFreelancers.length, 'freelancers');
+    setFreelancers(sortedFreelancers);
+  } catch (error) {
+    console.error('💥 Error fatal al cargar ranking:', error);
+  } finally {
+    setLoading(false);
   }
+}
 
   const topThree = freelancers.slice(0, 3);
   const restOfFreelancers = freelancers.slice(3);
@@ -139,7 +153,7 @@ export default function FreelancerRanking() {
           </p>
           <div className="flex items-center justify-center gap-2 mt-4 text-sm text-brand-gris">
             <Users size={16} />
-            <span>{freelancers.length} freelancers registrados</span>
+            <span>{freelancers.length} freelancers registrados y aprobados</span>
           </div>
         </div>
 
@@ -147,10 +161,10 @@ export default function FreelancerRanking() {
           <div className="text-center py-16 bg-white rounded-xl border border-brand-borde">
             <Award className="mx-auto h-16 w-16 text-brand-gris opacity-30 mb-4" />
             <h3 className="text-xl font-bold text-brand-negro mb-2">
-              Aún no hay freelancers registrados
+              Aún no hay freelancers aprobados
             </h3>
             <p className="text-brand-gris">
-              ¡Sé el primero en unirte y ocupar el primer lugar!
+              Los nuevos registros deben ser aprobados por un administrador antes de aparecer aquí.
             </p>
           </div>
         ) : (
@@ -295,7 +309,7 @@ export default function FreelancerRanking() {
                       </div>
                       <div className="mt-3 pt-3 border-t border-brand-borde flex justify-between text-xs text-brand-gris">
                         <span>{freelancer.completed_jobs} trabajos</span>
-                        <span>{freelancer.completed_jobs} completados</span>
+                        <span>{freelancer.total_reviews} reseñas</span> {/* ✅ Corregido: ahora muestra reseñas */}
                       </div>
                     </div>
                   ))}

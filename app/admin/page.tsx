@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Briefcase, Users, DollarSign, Clock, Plus, ArrowLeft, Check, X, Eye, Trash2, Star, TrendingUp, PieChart as PieChartIcon, BarChart3, MessageCircle, AlertTriangle, RotateCcw, Search, Filter, Shield, ShieldAlert, ChevronLeft, ChevronRight, FolderOpen, CreditCard } from 'lucide-react';
+import { Briefcase, Users, DollarSign, Clock, Plus, ArrowLeft, Check, X, Eye, Trash2, Star, TrendingUp, PieChart as PieChartIcon, BarChart3, MessageCircle, AlertTriangle, RotateCcw, Search, Filter, Shield, ShieldAlert, ChevronLeft, ChevronRight, FolderOpen, CreditCard, UserCheck } from 'lucide-react';
 import { Logo, Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
 import NewJobForm from '@/app/admin/NewJobForm';
@@ -246,29 +246,36 @@ export default function AdminPanel() {
     try {
       const job = jobs.find(j => j.id === jobId);
       
-      console.log('🔄 Aprobando propuesta:', proposalId);
+      console.log('🔄 Aprobando propuesta:', { proposalId, jobId, freelancerId });
       
-      const { data: proposalData, error: proposalError } = await supabase
+      // 1. Actualizar propuesta
+      const { error: proposalError } = await supabase
         .from('proposals')
         .update({ status: 'aprobada' })
-        .eq('id', proposalId)
-        .select();
+        .eq('id', proposalId);
 
-      if (proposalError) throw proposalError;
+      if (proposalError) {
+        console.error('❌ Error al actualizar propuesta:', proposalError);
+        throw proposalError;
+      }
 
-      const { data: jobData, error: jobError } = await supabase
+      // 2. Actualizar trabajo
+      const { error: jobError } = await supabase
         .from('jobs')
         .update({ 
           status: 'en_progreso', 
           assigned_freelancer_id: freelancerId 
         })
-        .eq('id', jobId)
-        .select();
+        .eq('id', jobId);
 
-      if (jobError) throw jobError;
+      if (jobError) {
+        console.error('❌ Error al actualizar trabajo:', jobError);
+        throw jobError;
+      }
 
       toast.success('Propuesta aprobada exitosamente');
       
+      // Actualizar estado local inmediatamente
       setProposals(prev => prev.map(p => 
         p.id === proposalId ? { ...p, status: 'aprobada' } : p
       ));
@@ -277,8 +284,10 @@ export default function AdminPanel() {
         j.id === jobId ? { ...j, status: 'en_progreso', assigned_freelancer_id: freelancerId } : j
       ));
       
+      // Recargar datos para asegurar consistencia
       await loadData(currentUserId);
       
+      // Notificar al freelancer
       if (freelancerId && job) {
         await createNotification(
           freelancerId,
@@ -290,9 +299,9 @@ export default function AdminPanel() {
         );
       }
       
-    } catch (error) {
-      console.error('💥 Error en handleApproveProposal:', error);
-      toast.error('Error al aprobar la propuesta');
+    } catch (error: any) {
+      console.error('💥 Error completo en handleApproveProposal:', error);
+      toast.error(`Error al aprobar: ${error.message || 'Revisa la consola para más detalles'}`);
     }
   }
 
@@ -300,7 +309,14 @@ export default function AdminPanel() {
     if (!confirm('¿Rechazar esta propuesta?')) return;
     try {
       const proposal = proposals.find(p => p.id === proposalId);
-      await supabase.from('proposals').update({ status: 'rechazada' }).eq('id', proposalId);
+      
+      const { error } = await supabase
+        .from('proposals')
+        .update({ status: 'rechazada' })
+        .eq('id', proposalId);
+        
+      if (error) throw error;
+      
       toast.success('Propuesta rechazada');
       
       if (proposal) {
@@ -315,8 +331,9 @@ export default function AdminPanel() {
       }
       
       await loadData(currentUserId);
-    } catch (error) {
-      toast.error('Error al rechazar la propuesta');
+    } catch (error: any) {
+      console.error('💥 Error al rechazar propuesta:', error);
+      toast.error(`Error al rechazar: ${error.message || 'Revisa la consola'}`);
     }
   }
 
@@ -331,29 +348,34 @@ export default function AdminPanel() {
       await supabase.from('proposals').update({ status: 'anulada' }).eq('job_id', jobId).eq('status', 'aprobada');
       toast.success('Asignación anulada. El trabajo se republicó.');
       await loadData(currentUserId);
-    } catch (error) {
-      toast.error('Error al anular la asignación');
+    } catch (error: any) {
+      console.error('Error al anular:', error);
+      toast.error(`Error al anular: ${error.message}`);
     }
   }
 
   async function handleJobStatusChange(jobId: string, newStatus: string) {
     try {
-      await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
+      const { error } = await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
+      if (error) throw error;
       toast.success(`Estado actualizado a: ${newStatus}`);
       await loadData(currentUserId);
-    } catch (error) {
-      toast.error('Error al actualizar el estado');
+    } catch (error: any) {
+      console.error('Error al actualizar estado:', error);
+      toast.error(`Error: ${error.message}`);
     }
   }
 
   async function handleDeleteJob(jobId: string) {
     if (!confirm('¿Eliminar este trabajo? Esta acción no se puede deshacer.')) return;
     try {
-      await supabase.from('jobs').delete().eq('id', jobId);
+      const { error } = await supabase.from('jobs').delete().eq('id', jobId);
+      if (error) throw error;
       toast.success('Trabajo eliminado');
       await loadData(currentUserId);
-    } catch (error) {
-      toast.error('Error al eliminar el trabajo');
+    } catch (error: any) {
+      console.error('Error al eliminar:', error);
+      toast.error(`Error: ${error.message}`);
     }
   }
 
@@ -388,7 +410,6 @@ export default function AdminPanel() {
 
   return (
     <div className="min-h-screen bg-brand-crema flex flex-col">
-      {/* ✅ HEADER CON BOTÓN DE NOTICIAS AGREGADO */}
       <header className="bg-brand-negro py-3.5 px-5 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-3 flex-wrap">
           <div className="flex items-center gap-4">
@@ -399,7 +420,6 @@ export default function AdminPanel() {
             <NotificationBell userId={currentUserId} />
             <ThemeToggle />
             
-            {/* ✅ NUEVO: Botón de Noticias */}
             <button 
               onClick={() => router.push('/admin/news')} 
               className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
@@ -411,6 +431,14 @@ export default function AdminPanel() {
               <span className="hidden sm:inline">Noticias</span>
             </button>
             
+            <button 
+              onClick={() => router.push('/admin/users-approval')} 
+              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
+              title="Aprobación de Usuarios"
+            >
+              <UserCheck size={18} />
+              <span className="hidden sm:inline">Aprobaciones</span>
+            </button>
             <button 
               onClick={() => router.push('/admin/categories')} 
               className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
