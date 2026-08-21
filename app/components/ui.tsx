@@ -6,7 +6,7 @@ import React from 'react';
 export function Logo({ height = 40 }: { height?: number }) {
   return (
     <img 
-      src="/logo.png" 
+      src="/target-logo.png" 
       alt="Target Media"
       style={{ 
         height: `${height}px`,
