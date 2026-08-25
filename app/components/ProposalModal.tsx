@@ -61,6 +61,7 @@ export default function ProposalModal({ job, freelancerId, onClose }: ProposalMo
     setError('');
 
     try {
+      // NOTA: Usamos 'estimated_days' para coincidir con la columna creada en la BD
       const { error } = await supabase
         .from('proposals')
         .insert({
@@ -68,14 +69,14 @@ export default function ProposalModal({ job, freelancerId, onClose }: ProposalMo
           freelancer_id: freelancerId,
           cover_letter: coverLetter.trim(),
           proposed_budget: parseFloat(proposedBudget),
-          delivery_days: parseInt(deliveryDays),
+          estimated_days: parseInt(deliveryDays), 
           portfolio_link: portfolio.trim() || null,
           status: 'pendiente',
         });
 
       if (error) throw error;
 
-      // Enviar notificación por email
+      // Enviar notificación por email (si tienes la ruta configurada)
       const { data: profileData } = await supabase
         .from('profiles')
         .select('full_name')
@@ -83,15 +84,19 @@ export default function ProposalModal({ job, freelancerId, onClose }: ProposalMo
         .single();
 
       if (profileData) {
-        await fetch('/api/notify-new-proposal', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            freelancerName: profileData.full_name,
-            jobTitle: job.title,
-            message: coverLetter,
-          }),
-        });
+        try {
+          await fetch('/api/notify-new-proposal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              freelancerName: profileData.full_name,
+              jobTitle: job.title,
+              message: coverLetter,
+            }),
+          });
+        } catch (apiError) {
+          console.warn('Error al enviar notificación por email (no crítico):', apiError);
+        }
       }
 
       setSuccess(true);
@@ -119,7 +124,7 @@ export default function ProposalModal({ job, freelancerId, onClose }: ProposalMo
                 {job.category}
               </span>
               <span className="text-gray-400 text-sm">
-                Presupuesto: ${Number(job.budget).toLocaleString()}
+                Presupuesto ref: ${Number(job.budget).toLocaleString()}
               </span>
             </div>
             <h2 className="text-xl font-extrabold text-white leading-tight">{job.title}</h2>
@@ -207,13 +212,14 @@ export default function ProposalModal({ job, freelancerId, onClose }: ProposalMo
                   {/* Tiempo de entrega */}
                   <div>
                     <label className="block text-sm font-semibold text-brand-negro mb-2">
-                      Tiempo de entrega (días) *
+                      Tiempo estimado (días) *
                     </label>
                     <div className="relative">
                       <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
                       <input
                         type="number"
                         min="1"
+                        max="365"
                         value={deliveryDays}
                         onChange={(e) => {
                           setDeliveryDays(e.target.value);
@@ -229,6 +235,9 @@ export default function ProposalModal({ job, freelancerId, onClose }: ProposalMo
                         {errors.deliveryDays}
                       </p>
                     )}
+                    <p className="text-xs text-brand-gris mt-1">
+                      Este plazo comenzará a contar una vez aprobada la propuesta.
+                    </p>
                   </div>
                 </div>
 

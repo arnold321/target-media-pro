@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Briefcase, Users, DollarSign, Clock, Plus, ArrowLeft, Check, X, Eye, Trash2, Star, TrendingUp, PieChart as PieChartIcon, BarChart3, MessageCircle, AlertTriangle, RotateCcw, Search, Filter, Shield, ShieldAlert, ChevronLeft, ChevronRight, FolderOpen, CreditCard, UserCheck } from 'lucide-react';
+import { Briefcase, Users, DollarSign, Clock, Plus, ArrowLeft, Check, X, Eye, Trash2, Star, TrendingUp, PieChart as PieChartIcon, BarChart3, MessageCircle, AlertTriangle, RotateCcw, Search, Shield, ShieldAlert, ChevronLeft, ChevronRight, FolderOpen, CreditCard, UserCheck, Calendar } from 'lucide-react';
 import { Logo, Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
 import NewJobForm from '@/app/admin/NewJobForm';
@@ -22,6 +22,8 @@ interface Job {
   budget: number;
   status: string;
   created_at: string;
+  deadline: string | null;
+  overdue_notified: boolean;
   assigned_freelancer_id: string | null;
   rating?: number | null;
   review_text?: string | null;
@@ -34,6 +36,7 @@ interface Proposal {
   freelancer_id: string;
   cover_letter: string;
   proposed_budget: number;
+  estimated_days: number;
   status: string;
   created_at: string;
   deliverable_url: string | null;
@@ -76,6 +79,11 @@ export default function AdminPanel() {
   const [showNewJobForm, setShowNewJobForm] = useState(false);
   const [activeTab, setActiveTab] = useState<'jobs' | 'proposals' | 'stats' | 'users'>('jobs');
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
+  
+  // Estados para gestión de plazos
+  const [extendDeadlineJob, setExtendDeadlineJob] = useState<Job | null>(null);
+  const [extendDays, setExtendDays] = useState(3);
+  
   const router = useRouter();
   const toast = useToast();
   
@@ -180,20 +188,37 @@ export default function AdminPanel() {
     setTotalFilteredJobs(count || 0);
     setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
 
-    const jobsWithUnread = await Promise.all(
-      (jobsData || []).map(async (job) => {
-        const { count } = await supabase
-          .from('messages')
-          .select('*', { count: 'exact', head: true })
-          .eq('job_id', job.id)
-          .eq('read', false)
-          .neq('sender_id', uid);
+    // 🔍 DETECCIÓN AUTOMÁTICA DE VENCIMIENTOS
+    const now = new Date();
+    const jobsWithChecks = await Promise.all((jobsData || []).map(async (job) => {
+      const { count } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('job_id', job.id)
+        .eq('read', false)
+        .neq('sender_id', uid);
+      
+      let isOverdue = false;
+      if (job.status === 'en_progreso' && job.deadline) {
+        isOverdue = new Date(job.deadline) < now;
         
-        return { ...job, unread_messages: count || 0 };
-      })
-    );
+        // Si está vencido y no se ha notificado, crear notificación para el admin
+        if (isOverdue && !job.overdue_notified) {
+          await supabase.from('jobs').update({ overdue_notified: true }).eq('id', job.id);
+          await createNotification(
+            uid,
+            'job_overdue',
+            '⚠️ Plazo de Entrega Vencido',
+            `El trabajo "${job.title}" ha superado su fecha límite de entrega. Revisa el chat para negociar o cancelar.`,
+            job.id,
+            'job'
+          );
+        }
+      }
+      return { ...job, unread_messages: count || 0, _isOverdue: isOverdue };
+    }));
     
-    setJobs(jobsWithUnread);
+    setJobs(jobsWithChecks);
 
     const { data: proposalsData } = await supabase
       .from('proposals')
@@ -240,65 +265,55 @@ export default function AdminPanel() {
     }
   }
 
-  async function handleApproveProposal(proposalId: string, jobId: string, freelancerId: string) {
-    if (!confirm('¿Aprobar esta propuesta? El trabajo pasará a estado "En progreso".')) return;
+  async function handleApproveProposal(proposalId: string, jobId: string, freelancerId: string, estimatedDays: number) {
+    if (!confirm(`¿Aprobar esta propuesta? El trabajo pasará a "En progreso" con un plazo de ${estimatedDays || 7} días.`)) return;
     
     try {
       const job = jobs.find(j => j.id === jobId);
-      
-      console.log('🔄 Aprobando propuesta:', { proposalId, jobId, freelancerId });
-      
-      // 1. Actualizar propuesta
+      const deadlineDate = new Date();
+      deadlineDate.setDate(deadlineDate.getDate() + Number(estimatedDays || 7));
+
       const { error: proposalError } = await supabase
         .from('proposals')
         .update({ status: 'aprobada' })
         .eq('id', proposalId);
 
-      if (proposalError) {
-        console.error('❌ Error al actualizar propuesta:', proposalError);
-        throw proposalError;
-      }
+      if (proposalError) throw proposalError;
 
-      // 2. Actualizar trabajo
       const { error: jobError } = await supabase
         .from('jobs')
         .update({ 
           status: 'en_progreso', 
-          assigned_freelancer_id: freelancerId 
+          assigned_freelancer_id: freelancerId,
+          deadline: deadlineDate.toISOString(),
+          overdue_notified: false
         })
         .eq('id', jobId);
 
-      if (jobError) {
-        console.error('❌ Error al actualizar trabajo:', jobError);
-        throw jobError;
-      }
+      if (jobError) throw jobError;
 
-      toast.success('Propuesta aprobada exitosamente');
+      toast.success('Propuesta aprobada y plazo establecido');
       
-      // Actualizar estado local inmediatamente
       setProposals(prev => prev.map(p => 
         p.id === proposalId ? { ...p, status: 'aprobada' } : p
       ));
       
       setJobs(prev => prev.map(j => 
-        j.id === jobId ? { ...j, status: 'en_progreso', assigned_freelancer_id: freelancerId } : j
+        j.id === jobId ? { ...j, status: 'en_progreso', assigned_freelancer_id: freelancerId, deadline: deadlineDate.toISOString() } : j
       ));
       
-      // Recargar datos para asegurar consistencia
       await loadData(currentUserId);
       
-      // Notificar al freelancer
       if (freelancerId && job) {
         await createNotification(
           freelancerId,
           'proposal_approved',
           '¡Propuesta aprobada!',
-          `Tu propuesta para "${job.title}" ha sido aprobada.`,
+          `Tu propuesta para "${job.title}" ha sido aprobada. Tienes ${estimatedDays} días para entregar.`,
           jobId,
           'job'
         );
       }
-      
     } catch (error: any) {
       console.error('💥 Error completo en handleApproveProposal:', error);
       toast.error(`Error al aprobar: ${error.message || 'Revisa la consola para más detalles'}`);
@@ -334,6 +349,67 @@ export default function AdminPanel() {
     } catch (error: any) {
       console.error('💥 Error al rechazar propuesta:', error);
       toast.error(`Error al rechazar: ${error.message || 'Revisa la consola'}`);
+    }
+  }
+
+  async function handleExtendDeadline() {
+    if (!extendDeadlineJob) return;
+    try {
+      const currentDeadline = new Date(extendDeadlineJob.deadline || new Date());
+      const newDeadline = new Date(currentDeadline);
+      newDeadline.setDate(newDeadline.getDate() + extendDays);
+
+      const { error } = await supabase.from('jobs').update({ 
+        deadline: newDeadline.toISOString(),
+        overdue_notified: false // Resetear notificación al extender
+      }).eq('id', extendDeadlineJob.id);
+      
+      if (error) throw error;
+
+      toast.success(`Plazo extendido por ${extendDays} días`);
+      setExtendDeadlineJob(null);
+      
+      // Notificar al freelancer
+      if (extendDeadlineJob.assigned_freelancer_id) {
+        await createNotification(
+          extendDeadlineJob.assigned_freelancer_id,
+          'deadline_extended',
+          'Plazo de entrega extendido',
+          `El administrador ha extendido el plazo de entrega de "${extendDeadlineJob.title}" por ${extendDays} días adicionales.`,
+          extendDeadlineJob.id,
+          'job'
+        );
+      }
+      
+      await loadData(currentUserId);
+    } catch (error: any) {
+      toast.error(`Error al extender: ${error.message}`);
+    }
+  }
+
+  async function handleCancelJob(jobId: string) {
+    const job = jobs.find(j => j.id === jobId);
+    if (!job || !confirm(`¿CANCELAR por incumplimiento el trabajo "${job.title}"?\n\nSe notificará al freelancer y el trabajo volverá a estado "Anulado".`)) return;
+
+    try {
+      await supabase.from('jobs').update({ status: 'anulado' }).eq('id', jobId);
+      await supabase.from('proposals').update({ status: 'anulada' }).eq('job_id', jobId).eq('status', 'aprobada');
+      
+      toast.success('Trabajo cancelado por incumplimiento');
+      
+      if (job.assigned_freelancer_id) {
+        await createNotification(
+          job.assigned_freelancer_id,
+          'job_cancelled',
+          'Trabajo Cancelado',
+          `El trabajo "${job.title}" ha sido cancelado por incumplimiento del plazo acordado.`,
+          jobId,
+          'job'
+        );
+      }
+      await loadData(currentUserId);
+    } catch (error: any) {
+      toast.error(`Error: ${error.message}`);
     }
   }
 
@@ -468,14 +544,14 @@ export default function AdminPanel() {
         <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
           <div>
             <h1 className="text-3xl font-extrabold text-brand-negro">Gestión y Estadísticas</h1>
-            <p className="text-brand-gris mt-1">Administra oportunidades, usuarios y analiza el rendimiento.</p>
+            <p className="text-brand-gris mt-1">Administra oportunidades, usuarios, plazos y analiza el rendimiento.</p>
           </div>
           <button onClick={() => setShowNewJobForm(true)} className="tm-btn-rojo inline-flex items-center gap-2">
             <Plus size={18} /> Publicar Nuevo Trabajo
           </button>
         </div>
 
-        {/* KPIs */}
+        {/* KPIs Principales */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <div className="bg-white rounded-xl p-6 border border-brand-borde shadow-sm">
             <div className="flex items-center gap-4">
@@ -512,7 +588,7 @@ export default function AdminPanel() {
               <span className="flex items-center justify-center gap-2"><Briefcase size={16} /> Trabajos ({stats.totalJobs})</span>
             </button>
             <button onClick={() => setActiveTab('proposals')} className={`flex-1 px-6 py-4 font-semibold text-sm transition-colors whitespace-nowrap ${activeTab === 'proposals' ? 'text-brand-negro border-b-2 border-brand-rojo bg-brand-crema/30' : 'text-brand-gris hover:text-brand-negro'}`}>
-              <span className="flex items-center justify-center gap-2"><Users size={16} /> Propuestas ({proposals.length})</span>
+              <span className="flex items-center justify-center gap-2"><Users size={16} /> Propuestas ({stats.pendingProposals})</span>
             </button>
             <button onClick={() => setActiveTab('users')} className={`flex-1 px-6 py-4 font-semibold text-sm transition-colors whitespace-nowrap ${activeTab === 'users' ? 'text-brand-negro border-b-2 border-brand-rojo bg-brand-crema/30' : 'text-brand-gris hover:text-brand-negro'}`}>
               <span className="flex items-center justify-center gap-2"><Shield size={16} /> Usuarios ({users.length})</span>
@@ -523,25 +599,182 @@ export default function AdminPanel() {
             {/* PESTAÑA ESTADÍSTICAS */}
             {activeTab === 'stats' && (
               <div className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-gradient-to-br from-brand-rojo/10 to-brand-vino/10 rounded-xl p-5 border border-brand-borde">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-brand-gris">Ingresos Plataforma (10%)</h4>
+                      <DollarSign size={18} className="text-brand-rojo" />
+                    </div>
+                    <p className="text-2xl font-extrabold text-brand-negro">${(totalRevenue * 0.10).toLocaleString()}</p>
+                    <p className="text-xs text-brand-gris mt-1">De ${totalRevenue.toLocaleString()} totales</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-brand-borde">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-brand-gris">Tasa de Finalización</h4>
+                      <TrendingUp size={18} className="text-blue-600" />
+                    </div>
+                    <p className="text-2xl font-extrabold text-brand-negro">
+                      {(() => {
+                        const completed = jobs.filter(j => j.status === 'completado').length;
+                        const total = jobs.length || 1;
+                        return Math.round((completed / total) * 100);
+                      })()}%
+                    </p>
+                    <p className="text-xs text-brand-gris mt-1">{jobs.filter(j => j.status === 'completado').length} de {jobs.length} trabajos</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-5 border border-brand-borde">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-brand-gris">Freelancers Activos</h4>
+                      <Users size={18} className="text-green-600" />
+                    </div>
+                    <p className="text-2xl font-extrabold text-brand-negro">
+                      {(() => {
+                        const activeFreelancers = new Set(
+                          jobs.filter(j => j.status === 'completado' || j.status === 'en_progreso').map(j => j.assigned_freelancer_id).filter(Boolean)
+                        ).size;
+                        return activeFreelancers;
+                      })()}
+                    </p>
+                    <p className="text-xs text-brand-gris mt-1">Con trabajos asignados</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-brand-borde">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-brand-gris">Ticket Promedio</h4>
+                      <PieChartIcon size={18} className="text-purple-600" />
+                    </div>
+                    <p className="text-2xl font-extrabold text-brand-negro">
+                      ${(() => {
+                        const completed = jobs.filter(j => j.status === 'completado');
+                        const total = completed.reduce((sum, j) => sum + Number(j.budget), 0);
+                        return completed.length > 0 ? Math.round(total / completed.length) : 0;
+                      })().toLocaleString()}
+                    </p>
+                    <p className="text-xs text-brand-gris mt-1">Por trabajo completado</p>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div className="bg-brand-crema/30 rounded-xl p-6 border border-brand-borde">
                     <h3 className="text-lg font-bold text-brand-negro mb-4 flex items-center gap-2"><TrendingUp size={20} className="text-brand-rojo" /> Trabajos Completados por Mes</h3>
                     <div className="h-64 w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartJobsByMonth}><CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" /><XAxis dataKey="name" stroke="#6B7280" fontSize={12} /><YAxis stroke="#6B7280" fontSize={12} allowDecimals={false} /><Tooltip /><Bar dataKey="trabajos" fill="#D9374A" radius={[4, 4, 0, 0]} /></BarChart>
+                        <BarChart data={chartJobsByMonth}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                          <XAxis dataKey="name" stroke="#6B7280" fontSize={12} />
+                          <YAxis stroke="#6B7280" fontSize={12} allowDecimals={false} />
+                          <Tooltip formatter={(value) => [`${value} trabajos`, 'Completados']} contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #E5E7EB' }} />
+                          <Bar dataKey="trabajos" fill="#D9374A" radius={[4, 4, 0, 0]} />
+                        </BarChart>
                       </ResponsiveContainer>
                     </div>
                   </div>
                   <div className="bg-brand-crema/30 rounded-xl p-6 border border-brand-borde">
-                    <h3 className="text-lg font-bold text-brand-negro mb-4 flex items-center gap-2"><PieChartIcon size={20} className="text-brand-vino" /> Distribución de Ingresos</h3>
+                    <h3 className="text-lg font-bold text-brand-negro mb-4 flex items-center gap-2"><PieChartIcon size={20} className="text-brand-vino" /> Distribución de Ingresos por Categoría</h3>
                     <div className="h-64 w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <PieChart><Pie data={chartBudgetByCategory} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">{chartBudgetByCategory.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip formatter={(value) => `$${Number(value || 0).toLocaleString()}`} /></PieChart>
+                        <PieChart>
+                          <Pie data={chartBudgetByCategory} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" label={({name, percent}) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                            {chartBudgetByCategory.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}
+                          </Pie>
+                          <Tooltip formatter={(value) => `$${Number(value || 0).toLocaleString()}`} />
+                        </PieChart>
                       </ResponsiveContainer>
                     </div>
                     <div className="flex flex-wrap justify-center gap-3 mt-4">
-                      {chartBudgetByCategory.map((entry, index) => (<div key={entry.name} className="flex items-center gap-1.5 text-xs text-brand-gris"><div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>{entry.name}</div>))}
+                      {chartBudgetByCategory.map((entry, index) => (
+                        <div key={entry.name} className="flex items-center gap-1.5 text-xs text-brand-gris">
+                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>{entry.name}
+                        </div>
+                      ))}
                     </div>
+                  </div>
+                </div>
+
+                <div className="bg-brand-crema/30 rounded-xl p-6 border border-brand-borde">
+                  <h3 className="text-lg font-bold text-brand-negro mb-4 flex items-center gap-2"><Users size={20} className="text-brand-rojo" /> Top 5 Freelancers por Desempeño</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-xs text-brand-gris uppercase bg-brand-crema/50">
+                        <tr>
+                          <th className="px-4 py-3 text-left">#</th>
+                          <th className="px-4 py-3 text-left">Freelancer</th>
+                          <th className="px-4 py-3 text-center">Trabajos</th>
+                          <th className="px-4 py-3 text-center">Ingresos</th>
+                          <th className="px-4 py-3 text-center">Rating</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-brand-borde">
+                        {(() => {
+                          const freelancerStats = jobs.filter(j => j.status === 'completado' && j.assigned_freelancer_id).reduce((acc, job) => {
+                            const id = job.assigned_freelancer_id;
+                            if (!acc[id]) acc[id] = { id, jobs: 0, earnings: 0, ratings: [] };
+                            acc[id].jobs += 1;
+                            acc[id].earnings += Number(job.budget) || 0;
+                            if (job.rating) acc[id].ratings.push(job.rating);
+                            return acc;
+                          }, {} as Record<string, any>);
+
+                          const topFreelancers = Object.values(freelancerStats).map(stat => ({
+                            ...stat,
+                            avgRating: stat.ratings.length > 0 ? (stat.ratings.reduce((a, b) => a + b, 0) / stat.ratings.length).toFixed(1) : 'N/A'
+                          })).sort((a, b) => b.jobs - a.jobs).slice(0, 5);
+
+                          return topFreelancers.map((freelancer, index) => (
+                            <tr key={freelancer.id} className="bg-white hover:bg-brand-crema/20">
+                              <td className="px-4 py-3">{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}</td>
+                              <td className="px-4 py-3 font-medium text-brand-negro">{(() => { const profile = users.find(u => u.id === freelancer.id); return profile?.full_name || 'Freelancer'; })()}</td>
+                              <td className="px-4 py-3 text-center font-semibold text-brand-negro">{freelancer.jobs}</td>
+                              <td className="px-4 py-3 text-center text-green-600 font-semibold">${freelancer.earnings.toLocaleString()}</td>
+                              <td className="px-4 py-3 text-center"><span className="flex items-center justify-center gap-1"><Star size={12} className="text-yellow-500" fill="currentColor" />{freelancer.avgRating}</span></td>
+                            </tr>
+                          ));
+                        })()}
+                      </tbody>
+                    </table>
+                    {(() => {
+                      const hasCompletedJobs = jobs.some(j => j.status === 'completado' && j.assigned_freelancer_id);
+                      if (!hasCompletedJobs) return <p className="text-center text-brand-gris py-8">Aún no hay trabajos completados con freelancers asignados</p>;
+                    })()}
+                  </div>
+                </div>
+
+                <div className="bg-brand-crema/30 rounded-xl p-6 border border-brand-borde">
+                  <h3 className="text-lg font-bold text-brand-negro mb-4 flex items-center gap-2"><BarChart3 size={20} className="text-brand-vino" /> Crecimiento de Ingresos</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {(() => {
+                      const monthlyRevenue = completedJobs.reduce((acc, job) => {
+                        const monthYear = new Date(job.created_at).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+                        acc[monthYear] = (acc[monthYear] || 0) + Number(job.budget);
+                        return acc;
+                      }, {} as Record<string, number>);
+
+                      const months = Object.keys(monthlyRevenue).slice(-3);
+                      const currentMonth = months[months.length - 1] || 'Actual';
+                      const previousMonth = months[months.length - 2] || 'Anterior';
+                      const currentRevenue = monthlyRevenue[currentMonth] || 0;
+                      const previousRevenue = monthlyRevenue[previousMonth] || 0;
+                      const growth = previousRevenue > 0 ? ((currentRevenue - previousRevenue) / previousRevenue * 100).toFixed(1) : '0';
+
+                      return (
+                        <>
+                          <div className="bg-white rounded-lg p-4 border border-brand-borde">
+                            <p className="text-xs text-brand-gris mb-1">Mes Actual</p>
+                            <p className="text-xl font-bold text-brand-negro">${currentRevenue.toLocaleString()}</p>
+                            <p className="text-xs text-brand-gris capitalize">{currentMonth}</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-4 border border-brand-borde">
+                            <p className="text-xs text-brand-gris mb-1">Mes Anterior</p>
+                            <p className="text-xl font-bold text-brand-negro">${previousRevenue.toLocaleString()}</p>
+                            <p className="text-xs text-brand-gris capitalize">{previousMonth}</p>
+                          </div>
+                          <div className={`rounded-lg p-4 border ${Number(growth) >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                            <p className="text-xs text-brand-gris mb-1">Crecimiento</p>
+                            <p className={`text-xl font-bold ${Number(growth) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{Number(growth) >= 0 ? '+' : ''}{growth}%</p>
+                            <p className="text-xs text-brand-gris">vs mes anterior</p>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -558,13 +791,17 @@ export default function AdminPanel() {
                       {jobProposals.map(proposal => (
                         <div key={proposal.id} className="border border-brand-borde rounded-lg p-5">
                           <div className="flex justify-between items-start mb-3">
-                            <div><h4 className="font-bold text-brand-negro">{proposal.profiles.full_name}</h4><p className="text-sm text-brand-gris">{proposal.profiles.email}</p></div>
+                            <div>
+                              <h4 className="font-bold text-brand-negro">{proposal.profiles.full_name}</h4>
+                              <p className="text-sm text-brand-gris">{proposal.profiles.email}</p>
+                              <p className="text-xs text-brand-vino mt-1 font-semibold">⏱️ Plazo estimado: {proposal.estimated_days || 7} días</p>
+                            </div>
                             <Badge estado={proposal.status} />
                           </div>
                           <p className="text-sm text-brand-texto mb-3">{proposal.cover_letter}</p>
                           {proposal.status === 'pendiente' && (
                             <div className="flex gap-2 mt-4">
-                              <button onClick={() => handleApproveProposal(proposal.id, proposal.job_id, proposal.freelancer_id)} className="tm-btn-verde flex items-center gap-1 text-xs"><Check size={14} /> Aprobar</button>
+                              <button onClick={() => handleApproveProposal(proposal.id, proposal.job_id, proposal.freelancer_id, proposal.estimated_days)} className="tm-btn-verde flex items-center gap-1 text-xs"><Check size={14} /> Aprobar</button>
                               <button onClick={() => handleRejectProposal(proposal.id)} className="tm-btn-vino flex items-center gap-1 text-xs"><X size={14} /> Rechazar</button>
                             </div>
                           )}
@@ -579,65 +816,77 @@ export default function AdminPanel() {
                         <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
                         <input type="text" placeholder="Buscar trabajo..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="tm-input pl-10" />
                       </div>
-                      <select 
-                        value={statusFilter} 
-                        onChange={(e) => {
-                          setStatusFilter(e.target.value);
-                          setCurrentPage(1);
-                        }} 
-                        className="tm-input py-2"
-                      >
+                      <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }} className="tm-input py-2">
                         <option value="todos">Todos los estados</option>
                         <option value="abierto">Abierto</option>
                         <option value="en_progreso">En Progreso</option>
                         <option value="en_revision">En Revisión</option>
                         <option value="completado">Completado</option>
+                        <option value="anulado">Anulado</option>
                       </select>
                     </div>
                     
                     <div className="mb-4 flex justify-between items-center flex-wrap gap-2 text-sm text-brand-gris">
-                      <span>
-                        Mostrando {jobs.length} de {totalFilteredJobs} trabajos
-                        {totalFilteredJobs > 0 && <span className="ml-2 text-brand-negro font-semibold">(Página {currentPage} de {totalPages})</span>}
-                      </span>
+                      <span>Mostrando {jobs.length} de {totalFilteredJobs} trabajos</span>
                       {jobs.reduce((sum, job) => sum + (job.unread_messages || 0), 0) > 0 && (
-                        <span className="text-brand-rojo font-semibold">
-                          🔔 {jobs.reduce((sum, job) => sum + (job.unread_messages || 0), 0)} mensajes sin leer
-                        </span>
+                        <span className="text-brand-rojo font-semibold">🔔 {jobs.reduce((sum, job) => sum + (job.unread_messages || 0), 0)} mensajes sin leer</span>
                       )}
                     </div>
 
                     {jobs.length === 0 ? (
-                      <p className="text-brand-gris text-center py-8">
-                        {searchQuery || statusFilter !== 'todos' 
-                          ? 'No se encontraron trabajos con los filtros aplicados' 
-                          : 'No hay trabajos creados aún'}
-                      </p>
+                      <p className="text-brand-gris text-center py-8">{searchQuery || statusFilter !== 'todos' ? 'No se encontraron trabajos con los filtros aplicados' : 'No hay trabajos creados aún'}</p>
                     ) : (
                       <>
                         <div className="space-y-3">
                           {jobs.map(job => {
                             const jobProposalCount = proposals.filter(p => p.job_id === job.id).length;
+                            const isOverdue = (job as any)._isOverdue;
+                            
                             return (
-                              <div key={job.id} className="border border-brand-borde rounded-lg p-5 hover:shadow-md transition-shadow">
+                              <div key={job.id} className={`border rounded-lg p-5 hover:shadow-md transition-shadow ${isOverdue ? 'border-red-300 bg-red-50/30' : 'border-brand-borde'}`}>
                                 <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
-                                  <div className="flex-1"><h3 className="font-bold text-brand-negro text-lg">{job.title}</h3><p className="text-sm text-brand-gris">{job.category}</p></div>
+                                  <div className="flex-1">
+                                    <h3 className="font-bold text-brand-negro text-lg flex items-center gap-2">
+                                      {job.title}
+                                      {isOverdue && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><AlertTriangle size={12} /> VENCIDO</span>}
+                                    </h3>
+                                    <p className="text-sm text-brand-gris">{job.category}</p>
+                                    {job.deadline && (
+                                      <p className={`text-xs mt-1 flex items-center gap-1 ${isOverdue ? 'text-red-600 font-semibold' : 'text-brand-gris'}`}>
+                                        <Calendar size={12} /> 
+                                        Fecha límite: {new Date(job.deadline).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                      </p>
+                                    )}
+                                  </div>
                                   <Badge estado={job.status} />
                                 </div>
                                 <p className="text-sm text-brand-texto mb-3 line-clamp-2">{job.description}</p>
                                 <div className="flex justify-between items-center flex-wrap gap-3">
                                   <span className="font-semibold text-brand-negro">Presupuesto: ${Number(job.budget).toLocaleString()}</span>
                                   <div className="flex gap-2 flex-wrap">
-                                    {jobProposalCount > 0 && <button onClick={() => { setSelectedJob(job.id); }} className="tm-btn-outline flex items-center gap-1 text-xs"><Eye size={14} /> Ver Propuestas</button>}
+                                    {jobProposalCount > 0 && <button onClick={() => setSelectedJob(job.id)} className="tm-btn-outline flex items-center gap-1 text-xs"><Eye size={14} /> Ver Propuestas ({jobProposalCount})</button>}
+                                    
+                                    {(job.status === 'en_progreso' || job.status === 'en_revision') && (
+                                      <button onClick={() => { setExtendDeadlineJob(job); setExtendDays(3); }} className="bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 px-3 py-1.5 rounded-lg flex items-center gap-1 text-xs font-semibold">
+                                        <RotateCcw size={14} /> Extender Plazo
+                                      </button>
+                                    )}
+                                    
+                                    {(job.status === 'en_progreso' || job.status === 'en_revision') && (
+                                      <button onClick={() => handleCancelJob(job.id)} className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-3 py-1.5 rounded-lg flex items-center gap-1 text-xs font-semibold">
+                                        <ShieldAlert size={14} /> Cancelar
+                                      </button>
+                                    )}
+                                    
                                     <select value={job.status} onChange={(e) => handleJobStatusChange(job.id, e.target.value)} className="tm-input text-xs py-1.5" style={{ width: 'auto' }}>
                                       <option value="abierto">Abierto</option>
                                       <option value="en_progreso">En Progreso</option>
                                       <option value="en_revision">En Revisión</option>
                                       <option value="completado">Completado</option>
+                                      <option value="anulado">Anulado</option>
                                     </select>
                                     <button onClick={() => handleDeleteJob(job.id)} className="text-brand-rojo hover:text-brand-rojo-hover p-2"><Trash2 size={16} /></button>
                                     {job.status === 'completado' && <button onClick={() => setReviewJob(job)} className="tm-btn-outline flex items-center gap-1 text-xs"><Star size={14} /> Reseña</button>}
-                                    {(job.status === 'en_progreso' || job.status === 'en_revision') && <button onClick={() => handleAnularAsignacion(job.id)} className="bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 px-3 py-1.5 rounded-lg flex items-center gap-1 text-xs font-semibold"><RotateCcw size={14} /> Anular</button>}
                                     {(job.status === 'en_progreso' || job.status === 'en_revision' || job.status === 'completado') && (
                                       <button onClick={() => setChatJob(job)} className="tm-btn-outline flex items-center gap-1 text-xs relative">
                                         <MessageCircle size={14} /> Chat
@@ -653,51 +902,25 @@ export default function AdminPanel() {
 
                         {totalPages > 1 && (
                           <div className="mt-8 flex justify-center items-center gap-2">
-                            <button
-                              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                              disabled={currentPage === 1}
-                              className="tm-btn-outline flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <ChevronLeft size={16} />
-                              Anterior
+                            <button onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1} className="tm-btn-outline flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
+                              <ChevronLeft size={16} /> Anterior
                             </button>
-                            
                             <div className="flex items-center gap-1">
                               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                                 let pageNum;
-                                if (totalPages <= 5) {
-                                  pageNum = i + 1;
-                                } else if (currentPage <= 3) {
-                                  pageNum = i + 1;
-                                } else if (currentPage >= totalPages - 2) {
-                                  pageNum = totalPages - 4 + i;
-                                } else {
-                                  pageNum = currentPage - 2 + i;
-                                }
-                                
+                                if (totalPages <= 5) pageNum = i + 1;
+                                else if (currentPage <= 3) pageNum = i + 1;
+                                else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                                else pageNum = currentPage - 2 + i;
                                 return (
-                                  <button
-                                    key={pageNum}
-                                    onClick={() => setCurrentPage(pageNum)}
-                                    className={`w-10 h-10 rounded-lg font-semibold text-sm transition-colors ${
-                                      currentPage === pageNum
-                                        ? 'bg-brand-rojo text-white'
-                                        : 'bg-white text-brand-negro border border-brand-borde hover:bg-brand-crema'
-                                    }`}
-                                  >
+                                  <button key={pageNum} onClick={() => setCurrentPage(pageNum)} className={`w-10 h-10 rounded-lg font-semibold text-sm transition-colors ${currentPage === pageNum ? 'bg-brand-rojo text-white' : 'bg-white text-brand-negro border border-brand-borde hover:bg-brand-crema'}`}>
                                     {pageNum}
                                   </button>
                                 );
                               })}
                             </div>
-
-                            <button
-                              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                              disabled={currentPage === totalPages}
-                              className="tm-btn-outline flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              Siguiente
-                              <ChevronRight size={16} />
+                            <button onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages} className="tm-btn-outline flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
+                              Siguiente <ChevronRight size={16} />
                             </button>
                           </div>
                         )}
@@ -713,39 +936,23 @@ export default function AdminPanel() {
               <div className="space-y-4">
                 {(() => {
                   const pendingProposals = proposals.filter(p => p.status?.toLowerCase().trim() === 'pendiente');
-                  
                   if (pendingProposals.length === 0) {
-                    return (
-                      <div className="text-center py-12 bg-brand-crema/30 rounded-xl border border-brand-borde">
-                        <p className="text-brand-gris">No hay propuestas pendientes</p>
-                      </div>
-                    );
+                    return <div className="text-center py-12 bg-brand-crema/30 rounded-xl border border-brand-borde"><p className="text-brand-gris">No hay propuestas pendientes</p></div>;
                   }
-
                   return pendingProposals.map(proposal => (
                     <div key={proposal.id} className="border border-brand-borde rounded-lg p-5 hover:shadow-md transition-shadow">
                       <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
                         <div>
                           <h4 className="font-bold text-brand-negro">{proposal.profiles.full_name}</h4>
                           <p className="text-xs text-brand-vino font-semibold mt-1">Trabajo: {proposal.jobs.title}</p>
-                          <p className="text-xs text-brand-gris mt-1">Estado en BD: <strong className="text-brand-rojo">{proposal.status}</strong></p>
+                          <p className="text-xs text-brand-gris mt-1">⏱️ Plazo estimado: <strong className="text-brand-negro">{proposal.estimated_days || 7} días</strong></p>
                         </div>
                         <Badge estado={proposal.status} />
                       </div>
                       <p className="text-sm text-brand-texto mb-3">{proposal.cover_letter}</p>
                       <div className="flex gap-2 mt-4">
-                        <button 
-                          onClick={() => handleApproveProposal(proposal.id, proposal.job_id, proposal.freelancer_id)} 
-                          className="tm-btn-verde flex items-center gap-1 text-xs"
-                        >
-                          <Check size={14} /> Aprobar
-                        </button>
-                        <button 
-                          onClick={() => handleRejectProposal(proposal.id)} 
-                          className="tm-btn-vino flex items-center gap-1 text-xs"
-                        >
-                          <X size={14} /> Rechazar
-                        </button>
+                        <button onClick={() => handleApproveProposal(proposal.id, proposal.job_id, proposal.freelancer_id, proposal.estimated_days)} className="tm-btn-verde flex items-center gap-1 text-xs"><Check size={14} /> Aprobar</button>
+                        <button onClick={() => handleRejectProposal(proposal.id)} className="tm-btn-vino flex items-center gap-1 text-xs"><X size={14} /> Rechazar</button>
                       </div>
                     </div>
                   ));
@@ -776,9 +983,7 @@ export default function AdminPanel() {
                             <td className="px-6 py-4 font-medium text-brand-negro">{user.full_name || 'Sin nombre'}</td>
                             <td className="px-6 py-4 text-brand-gris">{user.email}</td>
                             <td className="px-6 py-4">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                user.role === 'admin' ? 'bg-brand-rojo/10 text-brand-rojo' : 'bg-blue-50 text-blue-700'
-                              }`}>
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${user.role === 'admin' ? 'bg-brand-rojo/10 text-brand-rojo' : 'bg-blue-50 text-blue-700'}`}>
                                 {user.role === 'admin' ? 'Administrador' : 'Freelancer / Trabajador'}
                               </span>
                             </td>
@@ -786,28 +991,15 @@ export default function AdminPanel() {
                               {new Date(user.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
                             </td>
                             <td className="px-6 py-4 text-right">
-                              <button
-                                onClick={() => handleUpdateRole(user.id, user.role)}
-                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                  user.role === 'admin'
-                                    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    : 'bg-brand-negro text-white hover:bg-gray-800'
-                                }`}
-                              >
-                                {user.role === 'admin' ? (
-                                  <><ShieldAlert size={14} /> Quitar Admin</>
-                                ) : (
-                                  <><Shield size={14} /> Promover a Admin</>
-                                )}
+                              <button onClick={() => handleUpdateRole(user.id, user.role)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${user.role === 'admin' ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-brand-negro text-white hover:bg-gray-800'}`}>
+                                {user.role === 'admin' ? <><ShieldAlert size={14} /> Quitar Admin</> : <><Shield size={14} /> Promover a Admin</>}
                               </button>
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                    {users.length === 0 && (
-                      <p className="text-center text-brand-gris py-8">No hay usuarios registrados aún.</p>
-                    )}
+                    {users.length === 0 && <p className="text-center text-brand-gris py-8">No hay usuarios registrados aún.</p>}
                   </div>
                 )}
               </div>
@@ -823,6 +1015,34 @@ export default function AdminPanel() {
       {showNewJobForm && <NewJobForm onClose={() => setShowNewJobForm(false)} onSuccess={() => { setShowNewJobForm(false); loadData(currentUserId); }} />}
       {reviewJob && <ReviewModal job={reviewJob} onClose={() => setReviewJob(null)} onSuccess={() => { setReviewJob(null); loadData(currentUserId); }} />}
       {chatJob && <ChatModal job={chatJob} currentUserId={currentUserId} currentUserName={currentUserName} currentUserRole={currentUserRole} onClose={() => { setChatJob(null); loadData(currentUserId); }} />}
+      
+      {/* MODAL PARA EXTENDER PLAZO */}
+      {extendDeadlineJob && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-2xl">
+            <h3 className="text-xl font-bold text-brand-negro mb-2">Extender Plazo de Entrega</h3>
+            <p className="text-sm text-brand-gris mb-4">
+              Trabajo: <strong>{extendDeadlineJob.title}</strong><br/>
+              Fecha límite actual: {new Date(extendDeadlineJob.deadline || '').toLocaleDateString('es-ES')}
+            </p>
+            
+            <label className="block text-sm font-semibold text-brand-texto mb-1.5">Días adicionales a agregar:</label>
+            <input 
+              type="number" 
+              min="1" 
+              max="365" 
+              value={extendDays} 
+              onChange={(e) => setExtendDays(Number(e.target.value))} 
+              className="tm-input mb-6"
+            />
+            
+            <div className="flex gap-3">
+              <button onClick={() => setExtendDeadlineJob(null)} className="flex-1 tm-btn-outline">Cancelar</button>
+              <button onClick={handleExtendDeadline} className="flex-1 tm-btn-rojo">Confirmar Extensión</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
