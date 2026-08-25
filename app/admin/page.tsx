@@ -706,7 +706,7 @@ export default function AdminPanel() {
                       <tbody className="divide-y divide-brand-borde">
                         {(() => {
                           const freelancerStats = jobs.filter(j => j.status === 'completado' && j.assigned_freelancer_id).reduce((acc, job) => {
-                            const id = job.assigned_freelancer_id;
+                            const id = job.assigned_freelancer_id as string;;
                             if (!acc[id]) acc[id] = { id, jobs: 0, earnings: 0, ratings: [] };
                             acc[id].jobs += 1;
                             acc[id].earnings += Number(job.budget) || 0;
