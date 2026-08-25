@@ -4,9 +4,10 @@ export type NotificationType =
   | 'proposal_approved'
   | 'proposal_rejected'
   | 'new_message'
-  | 'job_overdue'        // <-- NUEVO: Plazo vencido
-  | 'deadline_extended'  // <-- NUEVO: Plazo extendido
-  | 'job_cancelled';     // <-- NUEVO: Trabajo cancelado
+  | 'job_overdue'
+  | 'deadline_extended'
+  | 'job_cancelled'
+  | 'deliverable_uploaded';  // <-- AGREGAR ESTA LÍNEA
 
 export async function createNotification(
   userId: string,
