@@ -673,7 +673,7 @@ export default function AdminPanel() {
                     <div className="h-64 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
-                          <Pie data={chartBudgetByCategory} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" label={({name, percent}) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                          <Pie data={chartBudgetByCategory} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" label={({name, percent}) => `${name} ${((percent || 0) * 100).toFixed(0)}%`} labelLine={false}>
                             {chartBudgetByCategory.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}
                           </Pie>
                           <Tooltip formatter={(value) => `$${Number(value || 0).toLocaleString()}`} />
