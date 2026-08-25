@@ -716,7 +716,7 @@ export default function AdminPanel() {
 
                           const topFreelancers = Object.values(freelancerStats).map(stat => ({
                             ...stat,
-                            avgRating: stat.ratings.length > 0 ? (stat.ratings.reduce((a, b) => a + b, 0) / stat.ratings.length).toFixed(1) : 'N/A'
+                            avgRating: stat.ratings.length > 0 ? (stat.ratings.reduce((a: number, b: number) => a + b, 0) / stat.ratings.length).toFixed(1) : 'N/A'
                           })).sort((a, b) => b.jobs - a.jobs).slice(0, 5);
 
                           return topFreelancers.map((freelancer, index) => (
