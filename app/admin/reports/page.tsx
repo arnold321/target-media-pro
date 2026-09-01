@@ -557,7 +557,7 @@ export default function ReportsPage() {
       if (error) throw error;
 
       const now = new Date();
-      const complianceData = jobs?.map(job => {
+      const complianceData = (jobs?.map(job => {
         if (!job.deadline) return null;
         
         const deadline = parseISO(job.deadline);
@@ -586,7 +586,7 @@ export default function ReportsPage() {
           daysDifference: daysDifference,
           status: status,
         };
-      }).filter(Boolean);
+      }).filter(Boolean) || []) as any[];
 
       const onTime = complianceData?.filter(d => d.status === 'A Tiempo' || d.status === 'Anticipado').length || 0;
       const delayed = complianceData?.filter(d => d.status === 'Retrasado').length || 0;
