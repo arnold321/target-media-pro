@@ -1,0 +1,19 @@
+[
+  {
+    "freelancer_email": "arnold321@hotmail.com",
+    "title": "Diseño de logo para startup",
+    "category": "Diseño",
+    "description": "Creación de identidad visual completa",
+    "budget": 1500,
+    "completed_date": "2026-08-15",
+    "entregables": "Logo en SVG, PNG y manual de marca"
+  },
+  {
+    "freelancer_email": "pedro@example.com",
+    "title": "Desarrollo web e-commerce",
+    "category": "Desarrollo",
+    "description": "Tienda online con pasarela de pagos",
+    "budget": 3500,
+    "completed_date": "2026-08-20"
+  }
+]

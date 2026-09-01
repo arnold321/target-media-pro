@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Briefcase, Users, DollarSign, Clock, Plus, ArrowLeft, Check, X, Eye, Trash2, Star, TrendingUp, PieChart as PieChartIcon, BarChart3, MessageCircle, AlertTriangle, RotateCcw, Search, Shield, ShieldAlert, ChevronLeft, ChevronRight, FolderOpen, CreditCard, UserCheck, Calendar } from 'lucide-react';
+import { Briefcase, Users, DollarSign, Clock, Plus, ArrowLeft, Check, X, FileText, Database, Eye, Trash2, Star, TrendingUp, PieChart as PieChartIcon, BarChart3, MessageCircle, AlertTriangle, RotateCcw, Search, Shield, ShieldAlert, ChevronLeft, ChevronRight, FolderOpen, CreditCard, UserCheck, Calendar } from 'lucide-react';
 import { Logo, Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
 import NewJobForm from '@/app/admin/NewJobForm';
@@ -492,13 +492,13 @@ export default function AdminPanel() {
             <Logo height={34} />
             <span className="text-white font-semibold hidden sm:block">| Panel de Administración</span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 flex-wrap">
             <NotificationBell userId={currentUserId} />
             <ThemeToggle />
             
             <button 
               onClick={() => router.push('/admin/news')} 
-              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg font-semibold text-sm transition-all"
               title="Gestionar Noticias"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -509,15 +509,16 @@ export default function AdminPanel() {
             
             <button 
               onClick={() => router.push('/admin/users-approval')} 
-              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg font-semibold text-sm transition-all"
               title="Aprobación de Usuarios"
             >
               <UserCheck size={18} />
               <span className="hidden sm:inline">Aprobaciones</span>
             </button>
+
             <button 
               onClick={() => router.push('/admin/categories')} 
-              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg font-semibold text-sm transition-all"
               title="Gestionar Categorías"
             >
               <FolderOpen size={18} /> 
@@ -526,15 +527,33 @@ export default function AdminPanel() {
             
             <button
               onClick={() => router.push('/admin/payments')}
-              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg font-semibold text-sm transition-all"
               title="Gestión de Pagos"
             >
               <CreditCard size={18} />
               <span className="hidden sm:inline">Pagos</span>
             </button>
+
+            <button
+              onClick={() => router.push('/admin/bulk-import')}
+              className="flex items-center gap-1.5 px-3 py-2 bg-brand-crema hover:bg-white text-brand-negro rounded-lg font-semibold text-sm transition-all shadow-sm"
+              title="Carga Masiva de Trabajos"
+            >
+              <Database size={18} />
+              <span className="hidden sm:inline">Carga Masiva</span>
+            </button>
+
+            <button
+              onClick={() => router.push('/admin/reports')}
+              className="flex items-center gap-1.5 px-3 py-2 bg-brand-crema hover:bg-white text-brand-negro rounded-lg font-semibold text-sm transition-all shadow-sm"
+              title="Reportes"
+            >
+              <FileText size={18} />
+              <span className="hidden sm:inline">Reportes</span>
+            </button>
             
-            <button onClick={() => router.push('/')} className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white transition-colors">
-              <ArrowLeft size={14} /> Volver al inicio
+            <button onClick={() => router.push('/')} className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-300 hover:text-white transition-colors">
+              <ArrowLeft size={14} /> <span className="hidden sm:inline">Volver</span>
             </button>
           </div>
         </div>
@@ -706,7 +725,7 @@ export default function AdminPanel() {
                       <tbody className="divide-y divide-brand-borde">
                         {(() => {
                           const freelancerStats = jobs.filter(j => j.status === 'completado' && j.assigned_freelancer_id).reduce((acc, job) => {
-                            const id = job.assigned_freelancer_id as string;;
+                            const id = job.assigned_freelancer_id as string;
                             if (!acc[id]) acc[id] = { id, jobs: 0, earnings: 0, ratings: [] };
                             acc[id].jobs += 1;
                             acc[id].earnings += Number(job.budget) || 0;
@@ -717,7 +736,7 @@ export default function AdminPanel() {
                           const topFreelancers = Object.values(freelancerStats).map(stat => ({
                             ...stat,
                             avgRating: stat.ratings.length > 0 ? (stat.ratings.reduce((a: number, b: number) => a + b, 0) / stat.ratings.length).toFixed(1) : 'N/A'
-                          })).sort((a, b) => b.jobs - a.jobs).slice(0, 5);
+                          })).sort((a: any, b: any) => b.jobs - a.jobs).slice(0, 5);
 
                           return topFreelancers.map((freelancer, index) => (
                             <tr key={freelancer.id} className="bg-white hover:bg-brand-crema/20">
