@@ -2,415 +2,331 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Plus, Trash2, CreditCard, Globe, Smartphone, Bitcoin, DollarSign, X } from 'lucide-react';
+import { Plus, Trash2, CreditCard, Wallet, Building2, Smartphone, Check, X, AlertCircle } from 'lucide-react';
 import { useToast } from '@/app/components/ToastProvider';
 
 interface PaymentMethod {
   id: string;
-  method_type: string;
-  method_name: string;
-  account_details: any;
+  type: 'zelle' | 'paypal' | 'transfer' | 'binance' | 'pago_movil';
+  account_holder: string;
+  details: string;
   is_default: boolean;
+  created_at: string;
 }
 
-const METHOD_TYPES = [
-  { value: 'bank_transfer_national', label: 'Transferencia Bancaria Nacional', icon: CreditCard },
-  { value: 'bank_transfer_international', label: 'Transferencia Bancaria Internacional', icon: Globe },
-  { value: 'zelle', label: 'Zelle', icon: DollarSign },
-  { value: 'crypto', label: 'Criptomoneda', icon: Bitcoin },
-  { value: 'pago_movil', label: 'Pago Móvil', icon: Smartphone },
-  { value: 'paypal', label: 'PayPal', icon: DollarSign },
-  { value: 'stripe', label: 'Stripe', icon: CreditCard },
-];
+const PAYMENT_METHODS_CONFIG = {
+  zelle: {
+    label: 'Zelle',
+    icon: Smartphone,
+    color: 'bg-purple-100 text-purple-700',
+    placeholder: 'tu@email.com',
+    label_details: 'Email o teléfono registrado en Zelle',
+    validation: (value: string) => {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const phoneRegex = /^\+?[\d\s-]{10,}$/;
+      return emailRegex.test(value) || phoneRegex.test(value);
+    },
+    validation_message: 'Ingresa un email válido o número de teléfono con código de país',
+  },
+  paypal: {
+    label: 'PayPal',
+    icon: Wallet,
+    color: 'bg-blue-100 text-blue-700',
+    placeholder: 'tu@email.com',
+    label_details: 'Email de PayPal',
+    validation: (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+    validation_message: 'Ingresa un email válido de PayPal',
+  },
+  transfer: {
+    label: 'Transferencia Bancaria',
+    icon: Building2,
+    color: 'bg-green-100 text-green-700',
+    placeholder: 'Banco: XXX | Cuenta: XXX | Titular: XXX',
+    label_details: 'Banco, número de cuenta y titular',
+    validation: (value: string) => value.length >= 20,
+    validation_message: 'Ingresa al menos 20 caracteres con la información bancaria completa',
+  },
+  binance: {
+    label: 'Binance Pay',
+    icon: CreditCard,
+    color: 'bg-yellow-100 text-yellow-700',
+    placeholder: 'tu@email.com o ID de Binance',
+    label_details: 'Email o ID de Binance Pay',
+    validation: (value: string) => value.length >= 5,
+    validation_message: 'Ingresa un email o ID de Binance válido',
+  },
+  pago_movil: {
+    label: 'Pago Móvil (Venezuela)',
+    icon: Smartphone,
+    color: 'bg-red-100 text-red-700',
+    placeholder: 'Banco: XXX | Teléfono: 04XX-XXX-XXXX | Cédula: V-XXX',
+    label_details: 'Banco, teléfono y cédula',
+    validation: (value: string) => {
+      const phoneRegex = /04\d{2}-\d{7}/;
+      return value.length >= 25 && phoneRegex.test(value);
+    },
+    validation_message: 'Ingresa banco, teléfono (04XX-XXX-XXXX) y cédula completos',
+  },
+};
 
 export default function PaymentMethods() {
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [selectedType, setSelectedType] = useState('');
-  const [formData, setFormData] = useState<any>({});
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedType, setSelectedType] = useState<keyof typeof PAYMENT_METHODS_CONFIG>('zelle');
+  const [accountHolder, setAccountHolder] = useState('');
+  const [details, setDetails] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  
   const toast = useToast();
 
   useEffect(() => {
-    loadMethods();
+    fetchPaymentMethods();
   }, []);
 
-  async function loadMethods() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data, error } = await supabase
-      .from('payment_methods')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (!error) {
-      setMethods(data || []);
-    }
-    setLoading(false);
-  }
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selectedType) {
-      toast.error('Selecciona un tipo de método de pago');
-      return;
-    }
-
-    setSaving(true);
+  async function fetchPaymentMethods() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const methodType = METHOD_TYPES.find(m => m.value === selectedType);
-      
+      const { data, error } = await supabase
+        .from('payment_methods')
+        .select('*')
+        .eq('freelancer_id', user.id)
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setMethods(data || []);
+    } catch (error) {
+      console.error('Error al cargar métodos:', error);
+      toast.error('Error al cargar métodos de pago');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAddMethod() {
+    const config = PAYMENT_METHODS_CONFIG[selectedType];
+    
+    if (!accountHolder.trim()) {
+      toast.error('El nombre del titular es obligatorio');
+      return;
+    }
+
+    if (!config.validation(details)) {
+      toast.error(config.validation_message);
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const isDefault = methods.length === 0;
+
       const { error } = await supabase
         .from('payment_methods')
         .insert({
-          user_id: user.id,
-          method_type: selectedType,
-          method_name: methodType?.label || '',
-          account_details: formData,
-          is_default: methods.length === 0,
+          freelancer_id: user.id,
+          type: selectedType,
+          account_holder: accountHolder.trim(),
+          details: details.trim(),
+          is_default: isDefault,
         });
 
       if (error) throw error;
 
-      toast.success('Método de pago agregado exitosamente');
-      setShowForm(false);
-      setSelectedType('');
-      setFormData({});
-      await loadMethods();
+      toast.success('Método de pago agregado correctamente');
+      setShowAddModal(false);
+      setAccountHolder('');
+      setDetails('');
+      fetchPaymentMethods();
     } catch (error) {
-      console.error('Error al guardar:', error);
-      toast.error('Error al guardar el método de pago');
+      console.error('Error al agregar método:', error);
+      toast.error('Error al agregar método de pago');
     } finally {
       setSaving(false);
     }
   }
 
+  async function handleSetDefault(methodId: string) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Primero quitar el default de todos
+      await supabase
+        .from('payment_methods')
+        .update({ is_default: false })
+        .eq('freelancer_id', user.id);
+
+      // Luego establecer el nuevo default
+      const { error } = await supabase
+        .from('payment_methods')
+        .update({ is_default: true })
+        .eq('id', methodId)
+        .eq('freelancer_id', user.id);
+
+      if (error) throw error;
+
+      toast.success('Método predeterminado actualizado');
+      fetchPaymentMethods();
+    } catch (error) {
+      console.error('Error al establecer default:', error);
+      toast.error('Error al actualizar método predeterminado');
+    }
+  }
+
   async function handleDelete(methodId: string) {
-    if (!confirm('¿Eliminar este método de pago?')) return;
+    const method = methods.find(m => m.id === methodId);
+    if (!method) return;
+
+    if (!confirm(`¿Estás seguro de eliminar ${PAYMENT_METHODS_CONFIG[method.type].label} (${method.account_holder})?`)) {
+      return;
+    }
+
+    setDeletingId(methodId);
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       const { error } = await supabase
         .from('payment_methods')
         .delete()
-        .eq('id', methodId);
+        .eq('id', methodId)
+        .eq('freelancer_id', user.id);
 
       if (error) throw error;
 
       toast.success('Método de pago eliminado');
-      await loadMethods();
+      fetchPaymentMethods();
     } catch (error) {
       console.error('Error al eliminar:', error);
-      toast.error('Error al eliminar el método de pago');
+      toast.error('Error al eliminar método de pago');
+    } finally {
+      setDeletingId(null);
     }
   }
 
-  function renderFormFields() {
-    switch (selectedType) {
-      case 'bank_transfer_national':
-        return (
-          <>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Banco *</label>
-              <input
-                type="text"
-                value={formData.bank_name || ''}
-                onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: Banco de Venezuela"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Número de Cuenta *</label>
-              <input
-                type="text"
-                value={formData.account_number || ''}
-                onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: 0102-0123-45-6789012345"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Tipo de Cuenta *</label>
-              <select
-                value={formData.account_type || ''}
-                onChange={(e) => setFormData({ ...formData, account_type: e.target.value })}
-                className="tm-input"
-                required
-              >
-                <option value="">Seleccionar</option>
-                <option value="corriente">Corriente</option>
-                <option value="ahorro">Ahorro</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Cédula/RIF del Titular *</label>
-              <input
-                type="text"
-                value={formData.id_number || ''}
-                onChange={(e) => setFormData({ ...formData, id_number: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: V-12345678"
-                required
-              />
-            </div>
-          </>
-        );
-
-      case 'bank_transfer_international':
-        return (
-          <>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Banco *</label>
-              <input
-                type="text"
-                value={formData.bank_name || ''}
-                onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: Bank of America"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Número de Cuenta / IBAN *</label>
-              <input
-                type="text"
-                value={formData.account_number || ''}
-                onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: US12345678901234567890"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">SWIFT/BIC *</label>
-              <input
-                type="text"
-                value={formData.swift_code || ''}
-                onChange={(e) => setFormData({ ...formData, swift_code: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: BOFAUS3N"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">País *</label>
-              <input
-                type="text"
-                value={formData.country || ''}
-                onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: Estados Unidos"
-                required
-              />
-            </div>
-          </>
-        );
-
-      case 'zelle':
-        return (
-          <div>
-            <label className="block text-sm font-semibold text-brand-negro mb-2">Email de Zelle *</label>
-            <input
-              type="email"
-              value={formData.email || ''}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="tm-input"
-              placeholder="Ej: tu@email.com"
-              required
-            />
-          </div>
-        );
-
-      case 'crypto':
-        return (
-          <>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Criptomoneda *</label>
-              <select
-                value={formData.crypto_type || ''}
-                onChange={(e) => setFormData({ ...formData, crypto_type: e.target.value })}
-                className="tm-input"
-                required
-              >
-                <option value="">Seleccionar</option>
-                <option value="BTC">Bitcoin (BTC)</option>
-                <option value="ETH">Ethereum (ETH)</option>
-                <option value="USDT">Tether (USDT)</option>
-                <option value="USDC">USD Coin (USDC)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Dirección de Wallet *</label>
-              <input
-                type="text"
-                value={formData.wallet_address || ''}
-                onChange={(e) => setFormData({ ...formData, wallet_address: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: 0x1234..."
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Red *</label>
-              <input
-                type="text"
-                value={formData.network || ''}
-                onChange={(e) => setFormData({ ...formData, network: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: ERC-20, BEP-20, Bitcoin"
-                required
-              />
-            </div>
-          </>
-        );
-
-      case 'pago_movil':
-        return (
-          <>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Banco *</label>
-              <input
-                type="text"
-                value={formData.bank_code || ''}
-                onChange={(e) => setFormData({ ...formData, bank_code: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: 0102 (Banco de Venezuela)"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Cédula *</label>
-              <input
-                type="text"
-                value={formData.id_number || ''}
-                onChange={(e) => setFormData({ ...formData, id_number: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: V-12345678"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-brand-negro mb-2">Teléfono *</label>
-              <input
-                type="tel"
-                value={formData.phone || ''}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="tm-input"
-                placeholder="Ej: 0412-1234567"
-                required
-              />
-            </div>
-          </>
-        );
-
-      case 'paypal':
-        return (
-          <div>
-            <label className="block text-sm font-semibold text-brand-negro mb-2">Email de PayPal *</label>
-            <input
-              type="email"
-              value={formData.email || ''}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="tm-input"
-              placeholder="Ej: tu@email.com"
-              required
-            />
-          </div>
-        );
-
-      case 'stripe':
-        return (
-          <div>
-            <label className="block text-sm font-semibold text-brand-negro mb-2">Email de Stripe *</label>
-            <input
-              type="email"
-              value={formData.email || ''}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="tm-input"
-              placeholder="Ej: tu@email.com"
-              required
-            />
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  }
+  const defaultMethod = methods.find(m => m.is_default);
+  const canAddMore = methods.length < 4;
 
   if (loading) {
     return (
-      <div className="flex justify-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-rojo"></div>
+      <div className="flex justify-center items-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-rojo"></div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h3 className="text-xl font-bold text-brand-negro">Métodos de Pago</h3>
-          <p className="text-sm text-brand-gris mt-1">Agrega tus métodos de pago preferidos para recibir pagos</p>
+          <h2 className="text-2xl font-extrabold text-brand-negro">Métodos de Pago</h2>
+          <p className="text-brand-gris mt-1">Agrega tus métodos de pago preferidos para recibir pagos</p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="tm-btn-rojo flex items-center gap-2"
-        >
-          <Plus size={16} />
-          Agregar Método
-        </button>
+        {canAddMore && (
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="tm-btn-rojo flex items-center gap-2"
+          >
+            <Plus size={18} />
+            Agregar Método
+          </button>
+        )}
       </div>
 
+      {/* Límite de métodos */}
+      {!canAddMore && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+          <div>
+            <p className="font-semibold text-yellow-900">Límite alcanzado</p>
+            <p className="text-sm text-yellow-700">Has alcanzado el máximo de 4 métodos de pago. Elimina uno para agregar otro.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Lista de métodos */}
       {methods.length === 0 ? (
-        <div className="text-center py-12 bg-brand-crema/30 rounded-xl border border-brand-borde">
-          <CreditCard className="mx-auto h-12 w-12 text-brand-gris opacity-30 mb-4" />
-          <p className="text-brand-gris">No tienes métodos de pago configurados</p>
-          <p className="text-xs text-brand-gris mt-2">Agrega al menos un método para recibir pagos</p>
+        <div className="text-center py-16 bg-brand-crema/30 rounded-xl border border-brand-borde border-dashed">
+          <Wallet className="mx-auto h-16 w-16 text-brand-gris opacity-30" />
+          <h3 className="mt-4 text-xl font-bold text-brand-negro">Sin métodos de pago</h3>
+          <p className="text-brand-gris mt-2 max-w-md mx-auto">
+            Agrega al menos un método de pago para recibir los pagos de tus trabajos completados
+          </p>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="tm-btn-rojo mt-6 inline-flex items-center gap-2"
+          >
+            <Plus size={18} />
+            Agregar Primer Método
+          </button>
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid grid-cols-1 gap-4">
           {methods.map((method) => {
-            const methodType = METHOD_TYPES.find(m => m.value === method.method_type);
-            const Icon = methodType?.icon || CreditCard;
-            
+            const config = PAYMENT_METHODS_CONFIG[method.type];
+            const Icon = config.icon;
+
             return (
-              <div key={method.id} className="bg-white rounded-xl border border-brand-borde p-5">
-                <div className="flex justify-between items-start">
-                  <div className="flex items-start gap-3">
-                    <div className="bg-brand-crema p-2 rounded-lg">
-                      <Icon size={20} className="text-brand-vino" />
+              <div
+                key={method.id}
+                className={`bg-white rounded-xl border-2 p-6 transition-all ${
+                  method.is_default
+                    ? 'border-brand-rojo shadow-lg shadow-brand-rojo/10'
+                    : 'border-brand-borde hover:border-brand-rojo/50'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4 flex-1">
+                    <div className={`${config.color} p-3 rounded-xl`}>
+                      <Icon className="h-6 w-6" />
                     </div>
-                    <div>
-                      <h4 className="font-bold text-brand-negro">{method.method_name}</h4>
-                      {method.is_default && (
-                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full mt-1 inline-block">
-                          Predeterminado
-                        </span>
-                      )}
-                      <div className="mt-2 text-sm text-brand-gris">
-                        {Object.entries(method.account_details).map(([key, value]) => (
-                          <p key={key}>
-                            <span className="font-semibold">{key.replace('_', ' ').toUpperCase()}:</span> {value as string}
-                          </p>
-                        ))}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-bold text-brand-negro text-lg">{config.label}</h3>
+                        {method.is_default && (
+                          <span className="bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
+                            <Check size={12} />
+                            Predeterminado
+                          </span>
+                        )}
                       </div>
+                      <p className="text-brand-negro font-semibold mt-1">{method.account_holder}</p>
+                      <p className="text-brand-gris text-sm mt-1">{method.details}</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDelete(method.id)}
-                    className="text-brand-gris hover:text-brand-rojo p-2"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+
+                  <div className="flex flex-col gap-2">
+                    {!method.is_default && (
+                      <button
+                        onClick={() => handleSetDefault(method.id)}
+                        className="text-xs font-semibold text-brand-rojo hover:bg-brand-rojo/10 px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        Establecer como principal
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDelete(method.id)}
+                      disabled={deletingId === method.id}
+                      className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors disabled:opacity-50"
+                      title="Eliminar método"
+                    >
+                      {deletingId === method.id ? (
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current"></div>
+                      ) : (
+                        <Trash2 size={18} />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -419,72 +335,117 @@ export default function PaymentMethods() {
       )}
 
       {/* Modal para agregar método */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="bg-brand-negro rounded-t-2xl p-6 flex justify-between items-start">
-              <div>
-                <h2 className="text-2xl font-extrabold text-white">Agregar Método de Pago</h2>
-                <p className="text-gray-400 text-sm mt-1">Selecciona el tipo de método y completa los datos</p>
+            <div className="p-6 border-b border-brand-borde">
+              <div className="flex justify-between items-center">
+                <h3 className="text-2xl font-extrabold text-brand-negro">Agregar Método de Pago</h3>
+                <button
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setAccountHolder('');
+                    setDetails('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600 p-2"
+                >
+                  <X size={24} />
+                </button>
               </div>
-              <button
-                onClick={() => { setShowForm(false); setSelectedType(''); setFormData({}); }}
-                className="text-gray-400 hover:text-white"
-              >
-                <X size={24} />
-              </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-6 space-y-5">
+            <div className="p-6 space-y-6">
+              {/* Selector de tipo */}
               <div>
-                <label className="block text-sm font-semibold text-brand-negro mb-2">Tipo de Método de Pago *</label>
-                <select
-                  value={selectedType}
-                  onChange={(e) => { setSelectedType(e.target.value); setFormData({}); }}
-                  className="tm-input"
-                  required
-                >
-                  <option value="">Seleccionar tipo</option>
-                  {METHOD_TYPES.map(type => (
-                    <option key={type.value} value={type.value}>{type.label}</option>
-                  ))}
-                </select>
+                <label className="block text-sm font-semibold text-brand-negro mb-3">
+                  Selecciona el método de pago
+                </label>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {(Object.entries(PAYMENT_METHODS_CONFIG) as Array<[keyof typeof PAYMENT_METHODS_CONFIG, typeof PAYMENT_METHODS_CONFIG.zelle]>).map(([key, config]) => {
+                    const Icon = config.icon;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setSelectedType(key)}
+                        className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${
+                          selectedType === key
+                            ? 'border-brand-rojo bg-brand-rojo/5'
+                            : 'border-brand-borde hover:border-brand-rojo/50'
+                        }`}
+                      >
+                        <Icon className={`h-6 w-6 ${selectedType === key ? 'text-brand-rojo' : 'text-brand-gris'}`} />
+                        <span className={`text-sm font-semibold ${selectedType === key ? 'text-brand-negro' : 'text-brand-gris'}`}>
+                          {config.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              {selectedType && (
-                <div className="space-y-4">
-                  {renderFormFields()}
+              {/* Campos del formulario */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-brand-negro mb-2">
+                    Nombre del titular *
+                  </label>
+                  <input
+                    type="text"
+                    value={accountHolder}
+                    onChange={(e) => setAccountHolder(e.target.value)}
+                    className="tm-input"
+                    placeholder="Tu nombre completo o razón social"
+                  />
                 </div>
-              )}
 
+                <div>
+                  <label className="block text-sm font-semibold text-brand-negro mb-2">
+                    {PAYMENT_METHODS_CONFIG[selectedType].label_details} *
+                  </label>
+                  <input
+                    type="text"
+                    value={details}
+                    onChange={(e) => setDetails(e.target.value)}
+                    className="tm-input"
+                    placeholder={PAYMENT_METHODS_CONFIG[selectedType].placeholder}
+                  />
+                  <p className="text-xs text-brand-gris mt-1">
+                    {PAYMENT_METHODS_CONFIG[selectedType].validation_message}
+                  </p>
+                </div>
+              </div>
+
+              {/* Botones */}
               <div className="flex gap-3 pt-4 border-t border-brand-borde">
                 <button
-                  type="button"
-                  onClick={() => { setShowForm(false); setSelectedType(''); setFormData({}); }}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setAccountHolder('');
+                    setDetails('');
+                  }}
                   className="flex-1 tm-btn-outline"
-                  disabled={saving}
                 >
                   Cancelar
                 </button>
                 <button
-                  type="submit"
-                  disabled={saving || !selectedType}
-                  className="flex-1 tm-btn-rojo flex items-center justify-center gap-2"
+                  onClick={handleAddMethod}
+                  disabled={saving}
+                  className="flex-1 tm-btn-rojo flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {saving ? (
                     <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
                       Guardando...
                     </>
                   ) : (
                     <>
-                      <Plus size={16} />
-                      Guardar Método
+                      <Check size={18} />
+                      Agregar Método
                     </>
                   )}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Briefcase, Upload, CheckCircle, Clock, ArrowLeft, DollarSign, Award, FileText, TrendingUp, XCircle, User, Mail, Phone, Save, Edit3, MessageCircle, Search, Filter, BarChart3, PieChart as PieChartIcon, CreditCard, Star, MapPin, Calendar, Globe, Shield } from 'lucide-react';
+import { Briefcase, Upload, CheckCircle, Clock, ArrowLeft, DollarSign, Award, FileText, TrendingUp, XCircle, User, Mail, Phone, Save, Edit3, MessageCircle, Search, Filter, BarChart3, PieChart as PieChartIcon, CreditCard, Star, MapPin, Calendar, Globe, Shield, Target, Zap, Trophy, ChevronDown, ChevronUp, Lock, LogOut, Code, Palette, Megaphone, Video, PenTool } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Logo, Badge } from '@/app/components/ui';
 import { useToast } from '@/app/components/ToastProvider';
@@ -10,6 +10,8 @@ import ChatModal from '@/app/components/ChatModal';
 import NotificationBell from '@/app/components/NotificationBell';
 import { createNotification } from '@/lib/notifications';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { format, parseISO } from 'date-fns';
+import { es } from 'date-fns/locale';
 import PaymentMethods from './PaymentMethods';
 
 interface AssignedJob {
@@ -21,6 +23,7 @@ interface AssignedJob {
   description: string;
   deliverable_url: string | null;
   created_at: string;
+  deadline: string | null;
   unread_messages?: number;
 }
 
@@ -29,6 +32,7 @@ interface Proposal {
   job_id: string;
   cover_letter: string;
   proposed_budget: number;
+  estimated_days: number;
   status: string;
   created_at: string;
   jobs: {
@@ -79,6 +83,14 @@ const NATIONALITIES = [
   'Otra',
 ];
 
+const SKILL_CATEGORIES: Record<string, { icon: any; color: string }> = {
+  'Diseño': { icon: Palette, color: 'bg-purple-100 text-purple-700' },
+  'Desarrollo': { icon: Code, color: 'bg-blue-100 text-blue-700' },
+  'Marketing': { icon: Megaphone, color: 'bg-green-100 text-green-700' },
+  'Audiovisual': { icon: Video, color: 'bg-red-100 text-red-700' },
+  'Redacción': { icon: PenTool, color: 'bg-yellow-100 text-yellow-700' },
+};
+
 export default function FreelancerDashboard() {
   const [jobs, setJobs] = useState<AssignedJob[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
@@ -94,6 +106,8 @@ export default function FreelancerDashboard() {
     pendingProposals: 0,
     approvedProposals: 0,
     rejectedProposals: 0,
+    avgDeliveryDays: 0,
+    onTimeDeliveryRate: 0,
   });
   
   const [editingProfile, setEditingProfile] = useState(false);
@@ -114,9 +128,17 @@ export default function FreelancerDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
   
-  // Nuevos estados para ranking y reseñas
   const [rankingPosition, setRankingPosition] = useState<number | null>(null);
   const [totalReviews, setTotalReviews] = useState(0);
+  const [totalFreelancers, setTotalFreelancers] = useState(0);
+  
+  // Nuevos estados para el perfil mejorado
+  const [expandedSections, setExpandedSections] = useState({
+    personal: true,
+    professional: false,
+    security: false,
+  });
+  const [skills, setSkills] = useState<string[]>([]);
   
   const router = useRouter();
   const toast = useToast();
@@ -139,11 +161,17 @@ export default function FreelancerDashboard() {
   }, [currentUserId]);
 
   useEffect(() => {
-// ✅ AHORA
-if (profile && currentUserId) {
+    if (profile && currentUserId) {
       loadFreelancerStats();
+      extractSkillsFromJobs();
     }
-  }, [profile, currentUserId]);
+  }, [profile, currentUserId, jobs]);
+
+  function extractSkillsFromJobs() {
+    const completedJobs = jobs.filter(j => j.status === 'completado');
+    const categories = [...new Set(completedJobs.map(j => j.category))];
+    setSkills(categories);
+  }
 
   async function fetchProfile() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -175,17 +203,40 @@ if (profile && currentUserId) {
   async function loadFreelancerStats() {
     if (!currentUserId) return;
 
-    // 1. Cargar trabajos completados y contar reseñas
     const { data: jobsData } = await supabase
       .from('jobs')
-      .select('id, rating')
+      .select('id, rating, deadline, created_at')
       .eq('assigned_freelancer_id', currentUserId)
       .eq('status', 'completado');
 
     const reviewsCount = jobsData?.filter(j => j.rating !== null && j.rating !== undefined).length || 0;
     setTotalReviews(reviewsCount);
 
-    // 2. Calcular posición en ranking
+    let totalDays = 0;
+    let onTimeCount = 0;
+    let jobsWithDeadline = 0;
+
+    jobsData?.forEach(job => {
+      if (job.deadline) {
+        jobsWithDeadline++;
+        const deadline = new Date(job.deadline);
+        const completed = new Date(job.created_at);
+        const daysDiff = Math.floor((completed.getTime() - deadline.getTime()) / (1000 * 60 * 60 * 24));
+        
+        totalDays += daysDiff;
+        if (daysDiff <= 0) onTimeCount++;
+      }
+    });
+
+    const avgDeliveryDays = jobsWithDeadline > 0 ? Math.round(totalDays / jobsWithDeadline) : 0;
+    const onTimeDeliveryRate = jobsWithDeadline > 0 ? Math.round((onTimeCount / jobsWithDeadline) * 100) : 0;
+
+    setStats(prev => ({
+      ...prev,
+      avgDeliveryDays,
+      onTimeDeliveryRate,
+    }));
+
     const { data: allFreelancers } = await supabase
       .from('profiles')
       .select('id, rating')
@@ -193,6 +244,7 @@ if (profile && currentUserId) {
       .order('rating', { ascending: false, nullsFirst: false });
 
     if (allFreelancers) {
+      setTotalFreelancers(allFreelancers.length);
       const position = allFreelancers.findIndex(f => f.id === currentUserId) + 1;
       setRankingPosition(position > 0 ? position : null);
     }
@@ -260,7 +312,7 @@ if (profile && currentUserId) {
         .from('proposals')
         .select(`
           id, job_id, freelancer_id, cover_letter, proposed_budget,
-          delivery_days, portfolio_link, status, deliverable_url, created_at,
+          estimated_days, portfolio_link, status, deliverable_url, created_at,
           jobs:job_id (id, title, category, budget, status)
         `)
         .eq('freelancer_id', user.id)
@@ -276,6 +328,7 @@ if (profile && currentUserId) {
         job_id: proposal.job_id,
         cover_letter: proposal.cover_letter,
         proposed_budget: proposal.proposed_budget,
+        estimated_days: proposal.estimated_days || 7,
         status: proposal.status,
         created_at: proposal.created_at,
         jobs: {
@@ -404,6 +457,10 @@ if (profile && currentUserId) {
     }
   }
 
+  const toggleSection = (section: keyof typeof expandedSections) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
   const filteredJobs = jobs.filter(job => {
     const matchesSearch = searchQuery === '' || 
       job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -423,11 +480,21 @@ if (profile && currentUserId) {
     : 0;
 
   const earningsByMonthMap = jobs.filter(j => j.status === 'completado').reduce((acc, job) => {
-    const monthYear = new Date(job.created_at).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
-    acc[monthYear] = (acc[monthYear] || 0) + Number(job.budget || 0);
+    const monthKey = format(parseISO(job.created_at), 'yyyy-MM');
+    if (!acc[monthKey]) {
+      acc[monthKey] = { key: monthKey, ingresos: 0 };
+    }
+    acc[monthKey].ingresos += Number(job.budget || 0);
     return acc;
-  }, {} as Record<string, number>);
-  const chartEarningsByMonth = Object.entries(earningsByMonthMap).map(([name, ingresos]) => ({ name, ingresos })).slice(-6);
+  }, {} as Record<string, { key: string; ingresos: number }>);
+  
+  const chartEarningsByMonth = Object.values(earningsByMonthMap)
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .slice(-6)
+    .map(item => ({
+      name: format(parseISO(item.key + '-01'), 'MMM yy', { locale: es }),
+      ingresos: item.ingresos,
+    }));
 
   const proposalsByStatus = [
     { name: 'Pendientes', value: stats.pendingProposals, color: STATUS_COLORS.pendiente },
@@ -443,7 +510,12 @@ if (profile && currentUserId) {
   }, {} as Record<string, number>);
   const chartEarningsByCategory = Object.entries(earningsByCategoryMap).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
 
-  // Función para obtener el color del badge de ranking
+  const jobsByStatus = [
+    { name: 'En Progreso', value: stats.active, color: '#3B82F6' },
+    { name: 'En Revisión', value: stats.inReview, color: '#F59E0B' },
+    { name: 'Completados', value: stats.completed, color: '#10B981' },
+  ].filter(item => item.value > 0);
+
   const getRankingBadgeColor = () => {
     if (!rankingPosition || rankingPosition > 3) return 'bg-gray-100 text-gray-700';
     if (rankingPosition === 1) return 'bg-yellow-400 text-yellow-900';
@@ -456,6 +528,19 @@ if (profile && currentUserId) {
     if (rankingPosition === 1) return '🥇';
     if (rankingPosition === 2) return '🥈';
     return '🥉';
+  };
+
+  const freelancerLevel = Math.floor(stats.completed / 5) + 1;
+  const nextLevelJobs = (freelancerLevel * 5) - stats.completed;
+  const progressToNextLevel = ((stats.completed % 5) / 5) * 100;
+
+  const getBadges = () => {
+    const badges = [];
+    if (stats.onTimeDeliveryRate >= 90) badges.push({ icon: Zap, label: 'Entrega Rápida', color: 'bg-yellow-100 text-yellow-700' });
+    if (stats.completed >= 10) badges.push({ icon: Trophy, label: 'Top Performer', color: 'bg-purple-100 text-purple-700' });
+    if (approvalRate >= 80) badges.push({ icon: Award, label: 'Alta Aprobación', color: 'bg-green-100 text-green-700' });
+    if (rankingPosition && rankingPosition <= 3) badges.push({ icon: Star, label: `Top #${rankingPosition}`, color: 'bg-brand-rojo/10 text-brand-rojo' });
+    return badges;
   };
 
   if (loading) {
@@ -717,6 +802,29 @@ if (profile && currentUserId) {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl p-5 text-white">
+                    <div className="flex items-center gap-3 mb-2"><Clock className="h-5 w-5 text-blue-200" /><p className="text-xs text-blue-100 uppercase font-semibold">Tiempo Promedio Entrega</p></div>
+                    <p className="text-3xl font-extrabold">{stats.avgDeliveryDays} días</p>
+                    <p className="text-xs text-blue-200 mt-1">promedio de entrega</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-green-500 to-green-700 rounded-xl p-5 text-white">
+                    <div className="flex items-center gap-3 mb-2"><Target className="h-5 w-5 text-green-200" /><p className="text-xs text-green-100 uppercase font-semibold">Cumplimiento de Plazos</p></div>
+                    <p className="text-3xl font-extrabold">{stats.onTimeDeliveryRate}%</p>
+                    <p className="text-xs text-green-200 mt-1">entregas a tiempo</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-yellow-500 to-yellow-700 rounded-xl p-5 text-white">
+                    <div className="flex items-center gap-3 mb-2"><Star className="h-5 w-5 text-yellow-200" /><p className="text-xs text-yellow-100 uppercase font-semibold">Rating Promedio</p></div>
+                    <p className="text-3xl font-extrabold">{profile?.rating?.toFixed(1) || '0.0'}</p>
+                    <p className="text-xs text-yellow-200 mt-1">{totalReviews} reseñas</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-purple-500 to-purple-700 rounded-xl p-5 text-white">
+                    <div className="flex items-center gap-3 mb-2"><Trophy className="h-5 w-5 text-purple-200" /><p className="text-xs text-purple-100 uppercase font-semibold">Posición en Ranking</p></div>
+                    <p className="text-3xl font-extrabold">#{rankingPosition || '-'}</p>
+                    <p className="text-xs text-purple-200 mt-1">de {totalFreelancers} freelancers</p>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div className="bg-brand-crema/30 rounded-xl p-6 border border-brand-borde">
                     <h3 className="text-lg font-bold text-brand-negro mb-4 flex items-center gap-2"><TrendingUp size={20} className="text-brand-rojo" /> Ingresos por Mes</h3>
@@ -746,7 +854,7 @@ if (profile && currentUserId) {
                         <div className="h-64 w-full">
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
-                              <Pie data={proposalsByStatus} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                              <Pie data={proposalsByStatus} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}>
                                 {proposalsByStatus.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
                               </Pie>
                               <Tooltip formatter={(value) => `${value} propuestas`} />
@@ -765,8 +873,36 @@ if (profile && currentUserId) {
                     )}
                   </div>
 
-                  <div className="bg-brand-crema/30 rounded-xl p-6 border border-brand-borde lg:col-span-2">
-                    <h3 className="text-lg font-bold text-brand-negro mb-4 flex items-center gap-2"><BarChart3 size={20} className="text-brand-vino" /> Ingresos por Categoría de Trabajo</h3>
+                  <div className="bg-brand-crema/30 rounded-xl p-6 border border-brand-borde">
+                    <h3 className="text-lg font-bold text-brand-negro mb-4 flex items-center gap-2"><PieChartIcon size={20} className="text-brand-vino" /> Trabajos por Estado</h3>
+                    {jobsByStatus.length === 0 ? (
+                      <div className="h-64 flex items-center justify-center text-brand-gris text-sm">Aún no tienes trabajos asignados</div>
+                    ) : (
+                      <>
+                        <div className="h-64 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie data={jobsByStatus} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}>
+                                {jobsByStatus.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
+                              </Pie>
+                              <Tooltip formatter={(value) => `${value} trabajos`} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="flex flex-wrap justify-center gap-3 mt-4">
+                          {jobsByStatus.map((entry) => (
+                            <div key={entry.name} className="flex items-center gap-1.5 text-xs text-brand-gris">
+                              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }}></div>
+                              {entry.name}: {entry.value}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="bg-brand-crema/30 rounded-xl p-6 border border-brand-borde">
+                    <h3 className="text-lg font-bold text-brand-negro mb-4 flex items-center gap-2"><BarChart3 size={20} className="text-brand-vino" /> Ingresos por Categoría</h3>
                     {chartEarningsByCategory.length === 0 ? (
                       <div className="h-64 flex items-center justify-center text-brand-gris text-sm">Aún no hay datos de ingresos por categoría</div>
                     ) : (
@@ -789,171 +925,342 @@ if (profile && currentUserId) {
 
             {activeTab === 'payments' && <PaymentMethods />}
 
+            {/* ✅ PERFIL MEJORADO (Opción C) */}
             {activeTab === 'profile' && profile && (
-              <>
-                {/* Header del Perfil Mejorado */}
-                <div className="bg-gradient-to-br from-brand-negro to-gray-800 rounded-xl p-8 mb-6 text-white">
-                  <div className="flex items-center gap-6 flex-wrap">
-                    {/* Avatar con Badge de Ranking */}
-                    <div className="relative">
-                      <div className="bg-brand-rojo rounded-full w-24 h-24 flex items-center justify-center text-4xl font-extrabold">
+              <div className="space-y-6">
+                {/* Header con gradiente */}
+                <div className="relative bg-gradient-to-br from-brand-negro via-brand-vino to-gray-900 rounded-2xl p-8 text-white overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+                  <div className="absolute bottom-0 left-0 w-48 h-48 bg-brand-rojo/10 rounded-full -ml-24 -mb-24 blur-2xl"></div>
+                  
+                  <div className="relative flex items-center gap-6 flex-wrap">
+                    <div className={`relative ${rankingPosition && rankingPosition <= 3 ? 'animate-pulse' : ''}`}>
+                      <div className={`rounded-full w-28 h-28 flex items-center justify-center text-5xl font-extrabold border-4 ${
+                        rankingPosition === 1 ? 'bg-yellow-400 text-yellow-900 border-yellow-200' :
+                        rankingPosition === 2 ? 'bg-gray-300 text-gray-900 border-gray-100' :
+                        rankingPosition === 3 ? 'bg-amber-600 text-white border-amber-400' :
+                        'bg-brand-rojo text-white border-brand-crema'
+                      }`}>
                         {profile.full_name ? profile.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'U'}
                       </div>
+                      <div className="absolute bottom-1 right-1 bg-blue-500 rounded-full p-1.5 shadow-lg">
+                        <CheckCircle size={16} className="text-white" />
+                      </div>
+                    </div>
+
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 flex-wrap mb-2">
+                        <h2 className="text-4xl font-extrabold">
+                          {profile.full_name || 'Sin nombre'}
+                        </h2>
+                        {rankingPosition && rankingPosition <= 10 && (
+                          <span className={`text-sm font-bold px-4 py-1.5 rounded-full ${getRankingBadgeColor()}`}>
+                            {getRankingEmoji()} Top #{rankingPosition}
+                          </span>
+                        )}
+                        <span className="bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
+                          <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                          Disponible
+                        </span>
+                      </div>
+                      <p className="text-gray-300 mb-3 flex items-center gap-2"><Mail size={16} />{profile.email}</p>
                       
-                      {/* Badge de Top Ranking */}
-                      {rankingPosition && rankingPosition <= 3 && (
-                        <div className={`absolute -top-2 -right-2 rounded-full p-3 shadow-lg ${getRankingBadgeColor()}`}>
-                          <span className="text-2xl">{getRankingEmoji()}</span>
+                      <div className="flex items-center gap-4 mb-3">
+                        <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg">
+                          <Trophy size={18} className="text-yellow-400" />
+                          <span className="font-bold">Nivel {freelancerLevel}</span>
+                          <span className="text-gray-300 text-sm">· {nextLevelJobs} trabajos para Nivel {freelancerLevel + 1}</span>
+                        </div>
+                        <div className="flex-1 max-w-xs">
+                          <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-gradient-to-r from-brand-rojo to-yellow-400 transition-all duration-500"
+                              style={{ width: `${progressToNextLevel}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {getBadges().length > 0 && (
+                        <div className="flex gap-2 flex-wrap">
+                          {getBadges().map((badge, idx) => (
+                            <div key={idx} className={`${badge.color} px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-sm font-semibold`}>
+                              <badge.icon size={16} />
+                              {badge.label}
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
-
-                    {/* Información */}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 flex-wrap mb-2">
-                        <h2 className="text-3xl font-extrabold">
-                          {profile.full_name || 'Sin nombre'}
-                        </h2>
-                        {rankingPosition && rankingPosition <= 3 && (
-                          <span className={`text-sm font-bold px-3 py-1 rounded-full ${getRankingBadgeColor()}`}>
-                            Top #{rankingPosition} {getRankingEmoji()}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-gray-400 mb-3 flex items-center gap-1"><Mail size={14} />{profile.email}</p>
-                      
-                      {/* Estadísticas */}
-                      <div className="flex gap-6 text-sm flex-wrap">
-                        <div className="flex items-center gap-2">
-                          <Star size={16} className="text-yellow-400" />
-                          <span className="font-semibold">
-                            {profile?.rating?.toFixed(1) || '0.0'}
-                          </span>
-                          <span className="text-gray-400">
-                            ({totalReviews} reseñas)
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Briefcase size={16} className="text-brand-rojo" />
-                          <span className="font-semibold">
-                            {stats.completed}
-                          </span>
-                          <span className="text-gray-400">trabajos completados</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <DollarSign size={16} className="text-green-400" />
-                          <span className="font-semibold text-green-400">
-                            ${stats.totalEarned.toLocaleString()}
-                          </span>
-                          <span className="text-gray-400">ganados</span>
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 </div>
 
-                <div className="bg-brand-crema/30 rounded-xl border border-brand-borde p-6">
-                  <div className="flex justify-between items-center mb-6">
-                    <div>
-                      <h3 className="text-xl font-bold text-brand-negro">Información Personal</h3>
-                      <p className="text-sm text-brand-gris mt-1">Actualiza tus datos de contacto y perfil</p>
+                {/* Stats Cards del Perfil */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-gradient-to-br from-green-500 to-green-700 rounded-xl p-5 text-white shadow-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <DollarSign className="h-6 w-6 text-green-200" />
+                      <TrendingUp size={18} className="text-green-200" />
                     </div>
-                    {!editingProfile && (
-                      <button onClick={() => setEditingProfile(true)} className="tm-btn-outline flex items-center gap-2">
-                        <Edit3 size={16} /> Editar
-                      </button>
+                    <p className="text-3xl font-extrabold">${stats.totalEarned.toLocaleString()}</p>
+                    <p className="text-sm text-green-100 mt-1">Total ganado</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl p-5 text-white shadow-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <Briefcase className="h-6 w-6 text-blue-200" />
+                      <Award size={18} className="text-blue-200" />
+                    </div>
+                    <p className="text-3xl font-extrabold">{stats.completed}</p>
+                    <p className="text-sm text-blue-100 mt-1">Trabajos completados</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-yellow-500 to-yellow-700 rounded-xl p-5 text-white shadow-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <Star className="h-6 w-6 text-yellow-200" />
+                      <Target size={18} className="text-yellow-200" />
+                    </div>
+                    <p className="text-3xl font-extrabold">{profile?.rating?.toFixed(1) || '0.0'}</p>
+                    <p className="text-sm text-yellow-100 mt-1">{totalReviews} reseñas</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-purple-500 to-purple-700 rounded-xl p-5 text-white shadow-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <CheckCircle className="h-6 w-6 text-purple-200" />
+                      <Clock size={18} className="text-purple-200" />
+                    </div>
+                    <p className="text-3xl font-extrabold">{stats.onTimeDeliveryRate}%</p>
+                    <p className="text-sm text-purple-100 mt-1">Cumplimiento</p>
+                  </div>
+                </div>
+
+                {/* Secciones Colapsables */}
+                <div className="space-y-4">
+                  {/* Información Personal */}
+                  <div className="bg-brand-crema/30 rounded-xl border border-brand-borde overflow-hidden">
+                    <button 
+                      onClick={() => toggleSection('personal')}
+                      className="w-full px-6 py-4 flex items-center justify-between bg-white/50 hover:bg-white transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <User className="h-5 w-5 text-brand-rojo" />
+                        <div className="text-left">
+                          <h3 className="text-lg font-bold text-brand-negro">Información Personal</h3>
+                          <p className="text-sm text-brand-gris">Datos de contacto y perfil</p>
+                        </div>
+                      </div>
+                      {expandedSections.personal ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                    </button>
+                    
+                    {expandedSections.personal && (
+                      <div className="p-6 border-t border-brand-borde">
+                        {!editingProfile ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                              <label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Nombre completo</label>
+                              <p className="text-brand-negro font-medium mt-1 flex items-center gap-2">
+                                <User size={16} className="text-brand-gris" />
+                                {profile.full_name || 'No especificado'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Correo electrónico</label>
+                              <p className="text-brand-negro font-medium mt-1 flex items-center gap-2">
+                                <Mail size={16} className="text-brand-gris" />
+                                {profile.email}
+                                <CheckCircle size={14} className="text-green-500" />
+                              </p>
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">WhatsApp</label>
+                              <p className="text-brand-negro font-medium mt-1 flex items-center gap-2">
+                                <Phone size={16} className="text-brand-gris" />
+                                {profile.whatsapp_number || 'No especificado'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Dirección</label>
+                              <p className="text-brand-negro font-medium mt-1 flex items-center gap-2">
+                                <MapPin size={16} className="text-brand-gris" />
+                                {profile.address || 'No especificada'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Nacionalidad</label>
+                              <p className="text-brand-negro font-medium mt-1 flex items-center gap-2">
+                                <Globe size={16} className="text-brand-gris" />
+                                {profile.nationality || 'No especificada'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Cédula / ID</label>
+                              <p className="text-brand-negro font-medium mt-1 flex items-center gap-2">
+                                <Shield size={16} className="text-brand-gris" />
+                                {profile.id_number || 'No especificada'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Fecha de Nacimiento</label>
+                              <p className="text-brand-negro font-medium mt-1 flex items-center gap-2">
+                                <Calendar size={16} className="text-brand-gris" />
+                                {profile.date_of_birth ? new Date(profile.date_of_birth).toLocaleDateString('es-ES') : 'No especificada'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Miembro desde</label>
+                              <p className="text-brand-negro font-medium mt-1">{new Date(profile.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <form onSubmit={handleSaveProfile} className="space-y-4">
+                            <div>
+                              <label className="block text-sm font-semibold text-brand-negro mb-2">Nombre completo *</label>
+                              <div className="relative">
+                                <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                                <input type="text" required value={profileForm.full_name} onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })} className="tm-input pl-10" placeholder="Tu nombre completo" />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-semibold text-brand-negro mb-2">Correo electrónico</label>
+                              <div className="relative">
+                                <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                                <input type="email" value={profile.email} disabled className="tm-input pl-10 bg-gray-100 cursor-not-allowed" />
+                              </div>
+                              <p className="text-xs text-brand-gris mt-1">El correo no se puede cambiar</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-semibold text-brand-negro mb-2">Número de WhatsApp</label>
+                              <div className="relative">
+                                <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                                <input type="tel" value={profileForm.whatsapp_number} onChange={(e) => setProfileForm({ ...profileForm, whatsapp_number: e.target.value })} className="tm-input pl-10" placeholder="Ej: +58 412 1234567" />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-brand-borde">
+                              <div>
+                                <label className="block text-sm font-semibold text-brand-negro mb-2">Dirección</label>
+                                <div className="relative">
+                                  <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                                  <input type="text" value={profileForm.address} onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })} className="tm-input pl-10" placeholder="Tu dirección completa" />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-semibold text-brand-negro mb-2">Nacionalidad</label>
+                                <div className="relative">
+                                  <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                                  <select value={profileForm.nationality} onChange={(e) => setProfileForm({ ...profileForm, nationality: e.target.value })} className="tm-input pl-10">
+                                    <option value="">Selecciona tu nacionalidad</option>
+                                    {NATIONALITIES.map(nat => (
+                                      <option key={nat} value={nat}>{nat}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-semibold text-brand-negro mb-2">Cédula de Identidad / ID</label>
+                                <div className="relative">
+                                  <Shield size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                                  <input type="text" value={profileForm.id_number} onChange={(e) => setProfileForm({ ...profileForm, id_number: e.target.value })} className="tm-input pl-10" placeholder="Ej: V-12.345.678" />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-semibold text-brand-negro mb-2">Fecha de Nacimiento</label>
+                                <div className="relative">
+                                  <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
+                                  <input type="date" value={profileForm.date_of_birth} onChange={(e) => setProfileForm({ ...profileForm, date_of_birth: e.target.value })} className="tm-input pl-10" />
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex gap-3 pt-4 border-t border-brand-borde">
+                              <button type="button" onClick={() => { setEditingProfile(false); setProfileForm({ full_name: profile.full_name || '', whatsapp_number: profile.whatsapp_number || '', address: profile.address || '', date_of_birth: profile.date_of_birth || '', nationality: profile.nationality || '', id_number: profile.id_number || '' }); }} className="flex-1 tm-btn-outline" disabled={savingProfile}>Cancelar</button>
+                              <button type="submit" disabled={savingProfile} className="flex-1 tm-btn-rojo flex items-center justify-center gap-2">
+                                {savingProfile ? (<><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>Guardando...</>) : (<><Save size={16} />Guardar Cambios</>)}
+                              </button>
+                            </div>
+                          </form>
+                        )}
+                      </div>
                     )}
                   </div>
 
-                  {!editingProfile ? (
-                    <div className="space-y-4">
-                      <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Nombre completo</label><p className="text-brand-negro font-medium mt-1">{profile.full_name || 'No especificado'}</p></div>
-                      <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Correo electrónico</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><Mail size={14} className="text-brand-gris" />{profile.email}</p></div>
-                      <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">WhatsApp</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><Phone size={14} className="text-brand-gris" />{profile.whatsapp_number || 'No especificado'}</p></div>
-                      
-                      {/* Nuevos campos */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-brand-borde">
-                        <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Dirección</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><MapPin size={14} className="text-brand-gris" />{profile.address || 'No especificada'}</p></div>
-                        <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Nacionalidad</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><Globe size={14} className="text-brand-gris" />{profile.nationality || 'No especificada'}</p></div>
-                        <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Cédula / ID</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><Shield size={14} className="text-brand-gris" />{profile.id_number || 'No especificada'}</p></div>
-                        <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Fecha de Nacimiento</label><p className="text-brand-negro font-medium mt-1 flex items-center gap-2"><Calendar size={14} className="text-brand-gris" />{profile.date_of_birth ? new Date(profile.date_of_birth).toLocaleDateString('es-ES') : 'No especificada'}</p></div>
-                      </div>
-                      
-                      <div><label className="text-xs font-semibold text-brand-gris uppercase tracking-wide">Miembro desde</label><p className="text-brand-negro font-medium mt-1">{new Date(profile.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}</p></div>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleSaveProfile} className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-semibold text-brand-negro mb-2">Nombre completo *</label>
-                        <div className="relative">
-                          <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
-                          <input type="text" required value={profileForm.full_name} onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })} className="tm-input pl-10" placeholder="Tu nombre completo" />
+                  {/* Habilidades/Skills */}
+                  <div className="bg-brand-crema/30 rounded-xl border border-brand-borde overflow-hidden">
+                    <button 
+                      onClick={() => toggleSection('professional')}
+                      className="w-full px-6 py-4 flex items-center justify-between bg-white/50 hover:bg-white transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Briefcase className="h-5 w-5 text-brand-rojo" />
+                        <div className="text-left">
+                          <h3 className="text-lg font-bold text-brand-negro">Habilidades y Experiencia</h3>
+                          <p className="text-sm text-brand-gris">Tus áreas de especialización</p>
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-brand-negro mb-2">Correo electrónico</label>
-                        <div className="relative">
-                          <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
-                          <input type="email" value={profile.email} disabled className="tm-input pl-10 bg-gray-100 cursor-not-allowed" />
-                        </div>
-                        <p className="text-xs text-brand-gris mt-1">El correo no se puede cambiar</p>
+                      {expandedSections.professional ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                    </button>
+                    
+                    {expandedSections.professional && (
+                      <div className="p-6 border-t border-brand-borde">
+                        {skills.length > 0 ? (
+                          <div className="flex flex-wrap gap-3">
+                            {skills.map((skill, idx) => {
+                              const categoryInfo = SKILL_CATEGORIES[skill] || { icon: Briefcase, color: 'bg-gray-100 text-gray-700' };
+                              const Icon = categoryInfo.icon;
+                              return (
+                                <div key={idx} className={`${categoryInfo.color} px-4 py-2 rounded-lg flex items-center gap-2 font-semibold`}>
+                                  <Icon size={16} />
+                                  {skill}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-brand-gris text-center py-4">Aún no tienes habilidades registradas. Completa trabajos para que aparezcan automáticamente.</p>
+                        )}
                       </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-brand-negro mb-2">Número de WhatsApp</label>
-                        <div className="relative">
-                          <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
-                          <input type="tel" value={profileForm.whatsapp_number} onChange={(e) => setProfileForm({ ...profileForm, whatsapp_number: e.target.value })} className="tm-input pl-10" placeholder="Ej: +58 412 1234567" />
+                    )}
+                  </div>
+
+                  {/* Seguridad */}
+                  <div className="bg-brand-crema/30 rounded-xl border border-brand-borde overflow-hidden">
+                    <button 
+                      onClick={() => toggleSection('security')}
+                      className="w-full px-6 py-4 flex items-center justify-between bg-white/50 hover:bg-white transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Lock className="h-5 w-5 text-brand-rojo" />
+                        <div className="text-left">
+                          <h3 className="text-lg font-bold text-brand-negro">Seguridad</h3>
+                          <p className="text-sm text-brand-gris">Contraseña y autenticación</p>
                         </div>
-                        <p className="text-xs text-brand-gris mt-1">Opcional · Para contacto directo con clientes</p>
                       </div>
-                      
-                      {/* Nuevos campos en el formulario */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-brand-borde">
-                        <div>
-                          <label className="block text-sm font-semibold text-brand-negro mb-2">Dirección</label>
-                          <div className="relative">
-                            <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
-                            <input type="text" value={profileForm.address} onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })} className="tm-input pl-10" placeholder="Tu dirección completa" />
+                      {expandedSections.security ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                    </button>
+                    
+                    {expandedSections.security && (
+                      <div className="p-6 border-t border-brand-borde space-y-4">
+                        <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-brand-borde">
+                          <div className="flex items-center gap-3">
+                            <div className="bg-green-100 p-2 rounded-lg">
+                              <CheckCircle className="h-5 w-5 text-green-600" />
+                            </div>
+                            <div>
+                              <p className="font-semibold text-brand-negro">Correo verificado</p>
+                              <p className="text-sm text-brand-gris">Tu email está verificado</p>
+                            </div>
                           </div>
                         </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-brand-negro mb-2">Nacionalidad</label>
-                          <div className="relative">
-                            <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
-                            <select value={profileForm.nationality} onChange={(e) => setProfileForm({ ...profileForm, nationality: e.target.value })} className="tm-input pl-10">
-                              <option value="">Selecciona tu nacionalidad</option>
-                              {NATIONALITIES.map(nat => (
-                                <option key={nat} value={nat}>{nat}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-brand-negro mb-2">Cédula de Identidad / ID</label>
-                          <div className="relative">
-                            <Shield size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
-                            <input type="text" value={profileForm.id_number} onChange={(e) => setProfileForm({ ...profileForm, id_number: e.target.value })} className="tm-input pl-10" placeholder="Ej: V-12.345.678" />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-brand-negro mb-2">Fecha de Nacimiento</label>
-                          <div className="relative">
-                            <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gris" />
-                            <input type="date" value={profileForm.date_of_birth} onChange={(e) => setProfileForm({ ...profileForm, date_of_birth: e.target.value })} className="tm-input pl-10" />
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex gap-3 pt-4 border-t border-brand-borde">
-                        <button type="button" onClick={() => { setEditingProfile(false); setProfileForm({ full_name: profile.full_name || '', whatsapp_number: profile.whatsapp_number || '', address: profile.address || '', date_of_birth: profile.date_of_birth || '', nationality: profile.nationality || '', id_number: profile.id_number || '' }); }} className="flex-1 tm-btn-outline" disabled={savingProfile}>Cancelar</button>
-                        <button type="submit" disabled={savingProfile} className="flex-1 tm-btn-rojo flex items-center justify-center gap-2">
-                          {savingProfile ? (<><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>Guardando...</>) : (<><Save size={16} />Guardar Cambios</>)}
+                        
+                        <button className="w-full tm-btn-outline flex items-center justify-center gap-2">
+                          <Lock size={16} />
+                          Cambiar contraseña
+                        </button>
+                        
+                        <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="w-full tm-btn-outline flex items-center justify-center gap-2 text-brand-rojo hover:bg-red-50">
+                          <LogOut size={16} />
+                          Cerrar sesión
                         </button>
                       </div>
-                    </form>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </>
+              </div>
             )}
           </div>
         </div>
